@@ -28,6 +28,7 @@ model User {
   proProfile            ProProfile?
   customerConversations Conversation[] @relation("customerConversations")
   sentMessages          Message[]      @relation("sentMessages")
+  reviews               Review[]       @relation("customerReviews")
 
   @@map("users")
 }
@@ -82,6 +83,7 @@ model ProProfile {
   workingHours  WorkingHour[]
   gallery       ProGalleryImage[]
   conversations Conversation[]
+  reviews       Review[]
 
   @@index([mainCategoryId])
   @@map("pro_profiles")
@@ -220,6 +222,7 @@ model ServiceRecord {
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   payments     Payment[]
+  review       Review?
 
   @@map("service_records")
 }
@@ -275,6 +278,33 @@ model PaymentEvent {
 
   @@index([paymentId, createdAt])
   @@map("payment_events")
+}
+
+// ─── Değerlendirme / güven sistemi ───────────────────────────────────────
+// Uygulama içi ödemeli işlem = doğrulanmış yorum (güçlü); yalnız görüşme
+// sonrası = zayıf. Bir hizmet kaydına bir yorum.
+
+model Review {
+  id              String   @id @default(uuid())
+  serviceRecordId String   @unique
+  proProfileId    String
+  customerId      String
+  rating          Int // 1-5
+  communication   Int? // alt puanlar 1-5
+  punctuality     Int?
+  workmanship     Int?
+  body            String   @default("")
+  isVerified      Boolean  @default(false) // uygulama içi ödeme ile doğrulandı
+  proReply        String?
+  repliedAt       DateTime?
+  createdAt       DateTime @default(now())
+
+  serviceRecord ServiceRecord @relation(fields: [serviceRecordId], references: [id], onDelete: Cascade)
+  proProfile    ProProfile    @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
+  customer      User          @relation("customerReviews", fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([proProfileId, createdAt])
+  @@map("reviews")
 }
 
 // ─── Katalog ─────────────────────────────────────────────────────────────

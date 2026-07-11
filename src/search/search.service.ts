@@ -69,7 +69,11 @@ export class SearchService {
             WHERE w."proProfileId" = p.id
               AND w."dayOfWeek" = ${isoDow}
               AND w."isOpen"
-          ) AS "openToday"
+          ) AS "openToday",
+          (SELECT ROUND(AVG(r.rating)::numeric, 1) FROM reviews r
+            WHERE r."proProfileId" = p.id)::float AS "ratingAvg",
+          (SELECT COUNT(*) FROM reviews r
+            WHERE r."proProfileId" = p.id)::int AS "reviewCount"
         FROM pro_profiles p
         JOIN users u ON u.id = p."userId"
         JOIN categories c ON c.id = p."mainCategoryId"
