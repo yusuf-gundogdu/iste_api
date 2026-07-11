@@ -29,6 +29,8 @@ model User {
   customerConversations Conversation[] @relation("customerConversations")
   sentMessages          Message[]      @relation("sentMessages")
   reviews               Review[]       @relation("customerReviews")
+  favorites             Favorite[]
+  addresses             Address[]
 
   @@map("users")
 }
@@ -84,6 +86,7 @@ model ProProfile {
   gallery       ProGalleryImage[]
   conversations Conversation[]
   reviews       Review[]
+  favoritedBy   Favorite[]
 
   @@index([mainCategoryId])
   @@map("pro_profiles")
@@ -305,6 +308,35 @@ model Review {
 
   @@index([proProfileId, createdAt])
   @@map("reviews")
+}
+
+// ─── Favoriler & Adresler ────────────────────────────────────────────────
+
+model Favorite {
+  userId       String
+  proProfileId String
+  createdAt    DateTime @default(now())
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  proProfile ProProfile @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
+
+  @@id([userId, proProfileId])
+  @@map("favorites")
+}
+
+model Address {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String // Ev, İş…
+  city      String
+  district  String
+  fullText  String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("addresses")
 }
 
 // ─── Katalog ─────────────────────────────────────────────────────────────

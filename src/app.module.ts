@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { CategoriesModule } from './categories/categories.module';
 import { ProsModule } from './pros/pros.module';
 import { ConversationsModule } from './conversations/conversations.module';
+import { AccountModule } from './account/account.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { ServiceRecordsModule } from './service-records/service-records.module';
@@ -33,6 +34,7 @@ import { UsersModule } from './users/users.module';
     ServiceRecordsModule,
     PaymentsModule,
     ReviewsModule,
+    AccountModule,
     SearchModule,
     UploadsModule,
     UsersModule,
