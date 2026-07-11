@@ -17,9 +17,9 @@ export class FakePaymentProvider extends PaymentProvider {
     callbackUrl: string;
   }): Promise<CheckoutSession> {
     const providerRef = `fake-${randomUUID()}`;
-    const checkoutUrl =
-      `/api/v1/payments/${input.paymentId}/fake-3ds` +
-      `?ref=${providerRef}&callback=${encodeURIComponent(input.callbackUrl)}`;
+    // Callback URL sayfaya taşınmaz (XSS yüzeyi) — 3DS sayfası kendi
+    // callback'ini sabit kalıptan üretir; ref doğrulama anahtarıdır.
+    const checkoutUrl = `/api/v1/payments/${input.paymentId}/fake-3ds?ref=${providerRef}`;
     return Promise.resolve({ checkoutUrl, providerRef });
   }
 

@@ -116,13 +116,24 @@ describe('Payments (e2e) — escrow akışı', () => {
       .expect(200);
     const { checkoutUrl } = checkout.body as { checkoutUrl: string };
     expect(checkoutUrl).toContain('fake-3ds');
+    const ref = new URL(checkoutUrl, 'http://x').searchParams.get('ref')!;
 
     // 3DS sayfası render olur
     await request(app.getHttpServer()).get(checkoutUrl).expect(200);
 
-    // Onay callback'i
+    // ref'siz sahte callback durumu DEĞİŞTİREMEZ (güvenlik)
     await request(app.getHttpServer())
       .get(`/api/v1/payments/${paymentId}/callback?success=1`)
+      .expect(200);
+    const still = await request(app.getHttpServer())
+      .get(`/api/v1/payments/${paymentId}`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+    expect((still.body as { status: string }).status).toBe('PROCESSING');
+
+    // Doğru ref ile onay callback'i
+    await request(app.getHttpServer())
+      .get(`/api/v1/payments/${paymentId}/callback?success=1&ref=${ref}`)
       .expect(200);
 
     const detail = await request(app.getHttpServer())
@@ -202,12 +213,18 @@ describe('Payments (e2e) — escrow akışı', () => {
       .expect(201);
     const failPaymentId = (paymentRes.body as { id: string }).id;
 
-    await request(app.getHttpServer())
+    const failCheckout = await request(app.getHttpServer())
       .post(`/api/v1/payments/${failPaymentId}/checkout`)
       .set('Authorization', `Bearer ${customerToken}`)
       .expect(200);
+    const failRef = new URL(
+      (failCheckout.body as { checkoutUrl: string }).checkoutUrl,
+      'http://x',
+    ).searchParams.get('ref')!;
     await request(app.getHttpServer())
-      .get(`/api/v1/payments/${failPaymentId}/callback?success=0`)
+      .get(
+        `/api/v1/payments/${failPaymentId}/callback?success=0&ref=${failRef}`,
+      )
       .expect(200);
 
     const detail = await request(app.getHttpServer())

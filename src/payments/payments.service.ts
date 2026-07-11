@@ -145,6 +145,10 @@ export class PaymentsService {
     if (!payment || payment.status !== 'PROCESSING') {
       return { success: false };
     }
+    // providerRef eşleşmeyen callback sahtedir — durum değiştirilemez.
+    if (!payment.providerRef || payload['ref'] !== payment.providerRef) {
+      return { success: false };
+    }
 
     const verification = await this.provider.verifyPayment({
       paymentId,

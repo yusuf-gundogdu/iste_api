@@ -9,10 +9,8 @@ import {
   Param,
   Post,
   Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
-import type { Request } from 'express';
 import {
   IsNumber,
   IsOptional,
@@ -81,16 +79,18 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   @Post(':id/checkout')
   @HttpCode(HttpStatus.OK)
-  checkout(
-    @CurrentUser() user: JwtPayload,
-    @Param('id') id: string,
-    @Req() request: Request,
-  ) {
-    const apiBaseUrl = `${request.protocol}://${request.get('host')}/api/v1`;
+  checkout(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    // Host header'a güvenilmez (header injection) — sabit config kullanılır.
+    const apiBaseUrl =
+      process.env.PUBLIC_API_URL ??
+      `http://localhost:${process.env.PORT ?? 3000}/api/v1`;
     return this.payments.checkout(user.sub, id, apiBaseUrl);
   }
 
-  /** Sağlayıcı callback'i — auth yok (3DS yönlendirmesi). */
+  /**
+   * Sağlayıcı callback'i — auth yok (3DS yönlendirmesi) ama providerRef
+   * doğrulanır: ref bilinmeden ödeme durumu değiştirilemez.
+   */
   @All(':id/callback')
   @HttpCode(HttpStatus.OK)
   async callback(
@@ -129,14 +129,16 @@ export class PaymentsController {
 
   /**
    * Sahte 3DS sayfası (yalnız FakePaymentProvider akışı) — WebView'de
-   * banka doğrulama ekranını simüle eder.
+   * banka doğrulama ekranını simüle eder. Callback parametresi dış URL
+   * kabul etmez (XSS/open-redirect koruması); form action'ı sunucuda
+   * sabit kalıptan üretilir.
    */
   @Get(':id/fake-3ds')
   @Header('Content-Type', 'text/html; charset=utf-8')
-  fake3ds(
-    @Param('id') id: string,
-    @Query('callback') callback: string,
-  ): string {
+  fake3ds(@Param('id') id: string, @Query('ref') ref = ''): string {
+    const safeId = encodeURIComponent(id);
+    const safeRef = encodeURIComponent(ref);
+    const action = `/api/v1/payments/${safeId}/callback`;
     return `<!doctype html><html lang="tr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>3D Secure Doğrulama</title>
@@ -146,10 +148,12 @@ button{width:100%;padding:14px;border:none;border-radius:8px;font-size:16px;marg
 .ok{background:#15A88F;color:#fff}.no{background:#eee}</style></head><body>
 <div class="card"><h3>3D Secure Doğrulama</h3>
 <p>Bu bir test ödeme sayfasıdır — gerçek para çekilmez.</p>
-<form method="get" action="${callback}">
+<form method="get" action="${action}">
+<input type="hidden" name="ref" value="${safeRef}">
 <input type="hidden" name="success" value="1">
 <button class="ok" type="submit">Ödemeyi Onayla</button></form>
-<form method="get" action="${callback}">
+<form method="get" action="${action}">
+<input type="hidden" name="ref" value="${safeRef}">
 <input type="hidden" name="success" value="0">
 <button class="no" type="submit">Reddet</button></form>
 </div></body></html>`;
