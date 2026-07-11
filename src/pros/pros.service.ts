@@ -147,6 +147,147 @@ export class ProsService {
     };
   }
 
+  /** Usta paneli özeti (anayasa RP5 — ilk odak iş değil sohbet). */
+  async myDashboard(userId: string) {
+    const profile = await this.prisma.proProfile.findUnique({
+      where: { userId },
+      select: { id: true, verificationStatus: true, isPublished: true },
+    });
+    if (!profile) {
+      throw new NotFoundException('Usta vitrini henüz kurulmamış');
+    }
+
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const [released, secured, newConversations, activeRecords] =
+      await Promise.all([
+        this.prisma.payment.aggregate({
+          where: {
+            requestedByUserId: userId,
+            status: 'RELEASED',
+            updatedAt: { gte: monthStart },
+          },
+          _sum: { netAmount: true },
+        }),
+        this.prisma.payment.aggregate({
+          where: { requestedByUserId: userId, status: 'SECURED' },
+          _sum: { netAmount: true },
+        }),
+        this.prisma.serviceRecord.count({
+          where: {
+            conversation: { proProfileId: profile.id },
+            status: 'DISCUSSING',
+          },
+        }),
+        this.prisma.serviceRecord.count({
+          where: {
+            conversation: { proProfileId: profile.id },
+            status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+          },
+        }),
+      ]);
+
+    return {
+      verificationStatus: profile.verificationStatus,
+      isPublished: profile.isPublished,
+      monthEarnings: Number(released._sum.netAmount ?? 0),
+      securedAmount: Number(secured._sum.netAmount ?? 0),
+      newConversations,
+      activeJobs: activeRecords,
+    };
+  }
+
+  /** Usta hizmet akışı — 5 segment mobilde türetilir (anayasa RP5). */
+  async myServiceRecords(userId: string) {
+    const profile = await this.prisma.proProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!profile) {
+      throw new NotFoundException('Usta vitrini henüz kurulmamış');
+    }
+
+    const records = await this.prisma.serviceRecord.findMany({
+      where: { conversation: { proProfileId: profile.id } },
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        review: { select: { id: true } },
+        conversation: {
+          select: {
+            id: true,
+            customer: {
+              select: { firstName: true, lastName: true, avatarUrl: true },
+            },
+          },
+        },
+      },
+    });
+
+    return records.map((record) => ({
+      id: record.id,
+      conversationId: record.conversation.id,
+      customerName:
+        [
+          record.conversation.customer.firstName,
+          record.conversation.customer.lastName,
+        ]
+          .filter(Boolean)
+          .join(' ') || 'Müşteri',
+      title: record.title,
+      status: record.status,
+      agreedAmount:
+        record.agreedAmount == null ? null : Number(record.agreedAmount),
+      hasReview: record.review != null,
+      updatedAt: record.updatedAt,
+    }));
+  }
+
+  /** Kazanç ekranı: özet + ödeme listesi (cüzdan dili YOK — anayasa). */
+  async myEarnings(userId: string) {
+    const [releasedAll, secured, commission, payments] = await Promise.all([
+      this.prisma.payment.aggregate({
+        where: { requestedByUserId: userId, status: 'RELEASED' },
+        _sum: { netAmount: true },
+      }),
+      this.prisma.payment.aggregate({
+        where: { requestedByUserId: userId, status: 'SECURED' },
+        _sum: { netAmount: true },
+      }),
+      this.prisma.payment.aggregate({
+        where: {
+          requestedByUserId: userId,
+          status: { in: ['RELEASED', 'SECURED'] },
+        },
+        _sum: { commissionAmount: true },
+      }),
+      this.prisma.payment.findMany({
+        where: { requestedByUserId: userId },
+        orderBy: { createdAt: 'desc' },
+        include: { serviceRecord: { select: { title: true } } },
+      }),
+    ]);
+
+    return {
+      summary: {
+        transferred: Number(releasedAll._sum.netAmount ?? 0),
+        secured: Number(secured._sum.netAmount ?? 0),
+        commission: Number(commission._sum.commissionAmount ?? 0),
+      },
+      payments: payments.map((p) => ({
+        id: p.id,
+        conversationId: p.conversationId,
+        title: p.serviceRecord.title,
+        status: p.status,
+        amount: Number(p.amount),
+        commissionAmount: Number(p.commissionAmount),
+        netAmount: Number(p.netAmount),
+        createdAt: p.createdAt,
+      })),
+    };
+  }
+
   async getMine(userId: string) {
     const profile = await this.prisma.proProfile.findUnique({
       where: { userId },

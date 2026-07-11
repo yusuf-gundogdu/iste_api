@@ -45,6 +45,24 @@ export class ProsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('me/dashboard')
+  myDashboard(@CurrentUser() user: JwtPayload) {
+    return this.pros.myDashboard(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me/service-records')
+  myServiceRecords(@CurrentUser() user: JwtPayload) {
+    return this.pros.myServiceRecords(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me/earnings')
+  myEarnings(@CurrentUser() user: JwtPayload) {
+    return this.pros.myEarnings(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Put('me')
   upsertMine(
     @CurrentUser() user: JwtPayload,
