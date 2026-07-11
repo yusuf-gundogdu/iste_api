@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface SendMessageInput {
@@ -18,7 +19,10 @@ export interface SendMessageInput {
 
 @Injectable()
 export class ConversationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /** Müşteri → usta: mevcut sohbeti getirir ya da açar. */
   async getOrCreate(customerId: string, proProfileId: string) {
@@ -33,7 +37,12 @@ export class ConversationsService {
       throw new BadRequestException('Kendinle sohbet başlatamazsın');
     }
 
-    return this.prisma.conversation.upsert({
+    const existing = await this.prisma.conversation.findUnique({
+      where: { customerId_proProfileId: { customerId, proProfileId } },
+      select: { id: true },
+    });
+
+    const conversation = await this.prisma.conversation.upsert({
       where: {
         customerId_proProfileId: { customerId, proProfileId },
       },
@@ -42,6 +51,17 @@ export class ConversationsService {
       create: { customerId, proProfileId, serviceRecord: { create: {} } },
       include: this.conversationInclude(),
     });
+
+    if (!existing) {
+      await this.notifications.notify({
+        userId: pro.userId,
+        type: 'NEW_CONVERSATION',
+        title: 'Yeni müşteri sohbeti',
+        body: 'Bir müşteri seninle sohbet başlattı — hemen yanıtla.',
+        data: { conversationId: conversation.id },
+      });
+    }
+    return conversation;
   }
 
   /** Kullanıcının tüm sohbetleri (müşteri VE usta rolüyle). */

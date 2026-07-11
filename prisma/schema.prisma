@@ -31,6 +31,7 @@ model User {
   reviews               Review[]       @relation("customerReviews")
   favorites             Favorite[]
   addresses             Address[]
+  notifications         Notification[]
 
   @@map("users")
 }
@@ -337,6 +338,35 @@ model Address {
 
   @@index([userId])
   @@map("addresses")
+}
+
+// ─── Bildirimler ─────────────────────────────────────────────────────────
+// CTA'lı, ilgili yüzeye bağlanan bildirimler (anayasa RP5).
+
+enum NotificationType {
+  NEW_CONVERSATION
+  PAYMENT_REQUESTED
+  PAYMENT_SECURED
+  PAYMENT_RELEASED
+  REFUND_REQUESTED
+  REVIEW_RECEIVED
+  VERIFICATION_RESULT
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("notifications")
 }
 
 // ─── Katalog ─────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface CreateReviewInput {
@@ -17,7 +18,10 @@ export interface CreateReviewInput {
 
 @Injectable()
 export class ReviewsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /** Müşteri tamamlanan hizmete yorum bırakır (bir kez). */
   async create(customerId: string, input: CreateReviewInput) {
@@ -48,7 +52,7 @@ export class ReviewsService {
       (p) => p.status === 'SECURED' || p.status === 'RELEASED',
     );
 
-    return this.prisma.review.create({
+    const review = await this.prisma.review.create({
       data: {
         serviceRecordId: record.id,
         proProfileId: conversation.proProfile.id,
@@ -61,6 +65,14 @@ export class ReviewsService {
         isVerified,
       },
     });
+    await this.notifications.notify({
+      userId: conversation.proProfile.userId,
+      type: 'REVIEW_RECEIVED',
+      title: 'Yeni değerlendirme',
+      body: `${input.rating} yıldızlı bir yorum aldın${isVerified ? ' (doğrulanmış işlem)' : ''}.`,
+      data: { reviewId: review.id },
+    });
+    return review;
   }
 
   /** Usta kendi yorumuna yanıt verir. */

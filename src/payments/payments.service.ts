@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentProvider } from './providers/payment.provider';
 
@@ -24,6 +25,7 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly provider: PaymentProvider,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Usta sohbetten ödeme talebi oluşturur → hizmet PAYMENT_PENDING. */
@@ -102,6 +104,14 @@ export class PaymentsService {
         },
       }),
     ]);
+
+    await this.notifications.notify({
+      userId: conversation.customerId,
+      type: 'PAYMENT_REQUESTED',
+      title: 'Ödeme talebi geldi',
+      body: `₺${input.amount.toFixed(0)} tutarında güvenli ödeme talebi bekliyor.`,
+      data: { conversationId: conversation.id, paymentId: payment.id },
+    });
     return this.serialize(payment.id);
   }
 
@@ -180,6 +190,16 @@ export class PaymentsService {
           },
         }),
       ]);
+      await this.notifications.notify({
+        userId: payment.requestedByUserId,
+        type: 'PAYMENT_SECURED',
+        title: 'Ödeme güvencede',
+        body: 'Müşterin güvenli ödemeyi yaptı — hizmet planlandı.',
+        data: {
+          conversationId: payment.conversationId,
+          paymentId: payment.id,
+        },
+      });
     } else {
       // Başarısız ödeme sahte "ödendi" üretmez (anayasa).
       await this.prisma.payment.update({
@@ -226,6 +246,13 @@ export class PaymentsService {
         },
       },
     });
+    await this.notifications.notify({
+      userId: payment.requestedByUserId,
+      type: 'PAYMENT_RELEASED',
+      title: 'Ödemen aktarıldı',
+      body: 'Müşteri hizmeti onayladı — net kazancın banka hesabına aktarılıyor.',
+      data: { paymentId },
+    });
     return this.serialize(paymentId);
   }
 
@@ -244,6 +271,13 @@ export class PaymentsService {
         status: 'REFUND_REQUESTED',
         events: { create: { status: 'REFUND_REQUESTED', note } },
       },
+    });
+    await this.notifications.notify({
+      userId: payment.requestedByUserId,
+      type: 'REFUND_REQUESTED',
+      title: 'İade talebi',
+      body: 'Müşterin bir iade talebi girdi — inceleme başladı.',
+      data: { paymentId },
     });
     return this.serialize(paymentId);
   }
