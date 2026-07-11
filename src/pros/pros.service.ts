@@ -87,6 +87,13 @@ export class ProsService {
         )
         AND (${query.categorySlug ?? null}::text IS NULL
              OR c.slug = ${query.categorySlug ?? null})
+        AND (${query.subServiceSlug ?? null}::text IS NULL
+             OR EXISTS (
+               SELECT 1 FROM pro_profile_sub_services pss
+               JOIN sub_services s ON s.id = pss."subServiceId"
+               WHERE pss."proProfileId" = p.id
+                 AND s.slug = ${query.subServiceSlug ?? null}
+             ))
       ORDER BY "distanceKm" ASC
       LIMIT ${query.limit ?? 50}
     `);

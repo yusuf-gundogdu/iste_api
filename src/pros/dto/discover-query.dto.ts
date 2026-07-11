@@ -26,6 +26,10 @@ export class DiscoverQueryDto {
   categorySlug?: string;
 
   @IsOptional()
+  @IsString()
+  subServiceSlug?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @Min(1)
   @Max(100)
