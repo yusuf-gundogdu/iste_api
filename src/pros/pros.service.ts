@@ -107,6 +107,40 @@ export class ProsService {
     }));
   }
 
+  /** Herkese açık profil — yalnız yayındaki doğrulanmış vitrinler. */
+  async getPublicProfile(id: string) {
+    const profile = await this.prisma.proProfile.findUnique({
+      where: { id },
+      include: {
+        ...profileInclude,
+        user: {
+          select: { firstName: true, lastName: true, avatarUrl: true },
+        },
+      },
+    });
+    if (
+      !profile ||
+      !profile.isPublished ||
+      profile.verificationStatus !== 'VERIFIED'
+    ) {
+      throw new NotFoundException('Usta profili bulunamadı');
+    }
+
+    const isoDow = ((new Date().getDay() + 6) % 7) + 1;
+    const today = profile.workingHours.find((h) => h.dayOfWeek === isoDow);
+
+    return {
+      ...profile,
+      priceAmount:
+        profile.priceAmount == null ? null : Number(profile.priceAmount),
+      displayName:
+        [profile.user.firstName, profile.user.lastName]
+          .filter(Boolean)
+          .join(' ') || 'Usta',
+      openToday: today?.isOpen ?? false,
+    };
+  }
+
   async getMine(userId: string) {
     const profile = await this.prisma.proProfile.findUnique({
       where: { userId },

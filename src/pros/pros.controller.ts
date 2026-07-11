@@ -77,4 +77,10 @@ export class ProsController {
   ) {
     return this.pros.removeGalleryImage(user.sub, imageId);
   }
+
+  /** Herkese açık usta profili — en sonda ('me'/'discover' ile çakışmasın). */
+  @Get(':id')
+  getPublicProfile(@Param('id') id: string) {
+    return this.pros.getPublicProfile(id);
+  }
 }
