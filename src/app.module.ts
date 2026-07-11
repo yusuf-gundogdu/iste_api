@@ -9,6 +9,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { ProsModule } from './pros/pros.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { AccountModule } from './account/account.module';
+import { AdminModule } from './admin/admin.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ReviewsModule } from './reviews/reviews.module';
@@ -37,6 +38,7 @@ import { UsersModule } from './users/users.module';
     ReviewsModule,
     AccountModule,
     NotificationsModule,
+    AdminModule,
     SearchModule,
     UploadsModule,
     UsersModule,

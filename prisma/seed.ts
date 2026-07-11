@@ -184,6 +184,18 @@ async function main() {
 
   await seedDemoPros();
 
+  // Yönetici hesabı (panel girişi OTP ile — dev'de kod konsola düşer).
+  await prisma.user.upsert({
+    where: { phone: '+905550009999' },
+    update: { isAdmin: true },
+    create: {
+      phone: '+905550009999',
+      firstName: 'İŞTE',
+      lastName: 'Yönetici',
+      isAdmin: true,
+    },
+  });
+
   const counts = {
     categories: await prisma.category.count(),
     subServices: await prisma.subService.count(),
