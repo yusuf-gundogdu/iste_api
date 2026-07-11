@@ -29,6 +29,47 @@ model User {
   @@map("users")
 }
 
+// ─── Katalog ─────────────────────────────────────────────────────────────
+// Kategori → alt hizmet ağacı; gerekli kategorilerde marka uzmanlığı.
+
+model Category {
+  id                 String  @id @default(uuid())
+  slug               String  @unique
+  name               String
+  icon               String // mobil taraftaki ikon anahtarı
+  sortOrder          Int     @default(0)
+  requiresBrandModel Boolean @default(false)
+
+  subServices SubService[]
+  brands      Brand[]
+
+  @@map("categories")
+}
+
+model SubService {
+  id         String @id @default(uuid())
+  categoryId String
+  slug       String @unique
+  name       String
+  sortOrder  Int    @default(0)
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
+  @@map("sub_services")
+}
+
+model Brand {
+  id         String @id @default(uuid())
+  categoryId String
+  name       String
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, name])
+  @@map("brands")
+}
+
 model OtpCode {
   id         String    @id @default(uuid())
   phone      String
