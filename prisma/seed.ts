@@ -275,6 +275,15 @@ async function seedDemoPros() {
         .map((s) => ({ proProfileId: profile.id, subServiceId: s.id })),
     });
 
+    await prisma.proProfileBrand.deleteMany({
+      where: { proProfileId: profile.id },
+    });
+    await prisma.proProfileBrand.createMany({
+      data: category.brands
+        .slice(0, 4)
+        .map((b) => ({ proProfileId: profile.id, brandId: b.id })),
+    });
+
     await prisma.workingHour.deleteMany({
       where: { proProfileId: profile.id },
     });

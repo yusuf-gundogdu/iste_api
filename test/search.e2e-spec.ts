@@ -1,0 +1,86 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import request from 'supertest';
+import { App } from 'supertest/types';
+import { AppModule } from './../src/app.module';
+
+interface SearchResponse {
+  relatedServices: Array<{ type: string; name: string; categorySlug: string }>;
+  pros: Array<{
+    displayName: string;
+    categorySlug: string;
+    distanceKm: number;
+  }>;
+}
+
+describe('Search (e2e)', () => {
+  let app: INestApplication<App>;
+  const base = '/api/v1/search?lat=40.99&lng=29.03';
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api/v1');
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('kategori adıyla arama: ilgili hizmetler + ustalar döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`${base}&q=elektrik`)
+      .expect(200);
+
+    const body = res.body as SearchResponse;
+    expect(
+      body.relatedServices.some((r) => r.categorySlug === 'elektrikci'),
+    ).toBe(true);
+    expect(body.pros.length).toBeGreaterThanOrEqual(2);
+    expect(body.pros.every((p) => p.categorySlug === 'elektrikci')).toBe(true);
+  });
+
+  it('alt hizmet adıyla arama usta bulur (çamaşır makinesi)', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`${base}&q=${encodeURIComponent('çamaşır makinesi')}`)
+      .expect(200);
+
+    const body = res.body as SearchResponse;
+    expect(body.pros.some((p) => p.categorySlug === 'beyaz-esya-servisi')).toBe(
+      true,
+    );
+    expect(body.relatedServices.some((r) => r.type === 'subService')).toBe(
+      true,
+    );
+  });
+
+  it('usta adıyla arama çalışır', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`${base}&q=Mehmet`)
+      .expect(200);
+
+    const body = res.body as SearchResponse;
+    expect(body.pros.some((p) => p.displayName.includes('Mehmet'))).toBe(true);
+  });
+
+  it('kısa sorgu 400 döner', async () => {
+    await request(app.getHttpServer()).get(`${base}&q=a`).expect(400);
+  });
+
+  it('eşleşmeyen sorgu boş liste döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`${base}&q=zzzyoktr`)
+      .expect(200);
+
+    const body = res.body as SearchResponse;
+    expect(body.pros).toHaveLength(0);
+    expect(body.relatedServices).toHaveLength(0);
+  });
+});
