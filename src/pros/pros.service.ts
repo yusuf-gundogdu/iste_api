@@ -3,8 +3,30 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { DiscoverQueryDto } from './dto/discover-query.dto';
 import { UpsertProProfileDto } from './dto/upsert-pro-profile.dto';
+
+interface DiscoverRow {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  avatarUrl: string | null;
+  coverUrl: string | null;
+  categoryName: string;
+  categorySlug: string;
+  categoryIcon: string;
+  city: string;
+  district: string;
+  latitude: number;
+  longitude: number;
+  priceApproach: string;
+  priceAmount: unknown;
+  yearsExperience: number | null;
+  distanceKm: number;
+  openToday: boolean;
+}
 
 const profileInclude = {
   mainCategory: { select: { id: true, slug: true, name: true } },
@@ -20,6 +42,63 @@ const profileInclude = {
 @Injectable()
 export class ProsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Konuma göre yayındaki doğrulanmış ustaları döner (yakından uzağa).
+   * PostGIS ST_DWithin ile; MVP ölçeğinde expression index'siz yeterli.
+   */
+  async discover(query: DiscoverQueryDto) {
+    // ISO: 1=Pzt … 7=Paz — WorkingHour.dayOfWeek ile aynı.
+    const isoDow = ((new Date().getDay() + 6) % 7) + 1;
+    const radiusMeters = (query.radiusKm ?? 15) * 1000;
+
+    const rows = await this.prisma.$queryRaw<DiscoverRow[]>(Prisma.sql`
+      SELECT
+        p.id,
+        u."firstName", u."lastName", u."avatarUrl",
+        p."coverUrl",
+        c.name  AS "categoryName",
+        c.slug  AS "categorySlug",
+        c.icon  AS "categoryIcon",
+        p.city, p.district, p.latitude, p.longitude,
+        p."priceApproach"::text AS "priceApproach",
+        p."priceAmount", p."yearsExperience",
+        ST_Distance(
+          ST_SetSRID(ST_MakePoint(p.longitude, p.latitude), 4326)::geography,
+          ST_SetSRID(ST_MakePoint(${query.lng}, ${query.lat}), 4326)::geography
+        ) / 1000 AS "distanceKm",
+        EXISTS(
+          SELECT 1 FROM working_hours w
+          WHERE w."proProfileId" = p.id
+            AND w."dayOfWeek" = ${isoDow}
+            AND w."isOpen"
+        ) AS "openToday"
+      FROM pro_profiles p
+      JOIN users u ON u.id = p."userId"
+      JOIN categories c ON c.id = p."mainCategoryId"
+      WHERE p."isPublished"
+        AND p."verificationStatus" = 'VERIFIED'
+        AND p.latitude IS NOT NULL
+        AND p.longitude IS NOT NULL
+        AND ST_DWithin(
+          ST_SetSRID(ST_MakePoint(p.longitude, p.latitude), 4326)::geography,
+          ST_SetSRID(ST_MakePoint(${query.lng}, ${query.lat}), 4326)::geography,
+          ${radiusMeters}
+        )
+        AND (${query.categorySlug ?? null}::text IS NULL
+             OR c.slug = ${query.categorySlug ?? null})
+      ORDER BY "distanceKm" ASC
+      LIMIT ${query.limit ?? 50}
+    `);
+
+    return rows.map((row) => ({
+      ...row,
+      priceAmount: row.priceAmount == null ? null : Number(row.priceAmount),
+      distanceKm: Math.round(row.distanceKm * 10) / 10,
+      displayName:
+        [row.firstName, row.lastName].filter(Boolean).join(' ') || 'Usta',
+    }));
+  }
 
   async getMine(userId: string) {
     const profile = await this.prisma.proProfile.findUnique({

@@ -8,12 +8,14 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { CurrentUser, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { JwtPayload } from '../auth/auth.service';
 import { ProsService } from './pros.service';
+import { DiscoverQueryDto } from './dto/discover-query.dto';
 import { UpsertProProfileDto } from './dto/upsert-pro-profile.dto';
 
 class AddGalleryImageDto {
@@ -27,15 +29,22 @@ class AddGalleryImageDto {
 }
 
 @Controller('pros')
-@UseGuards(JwtAuthGuard)
 export class ProsController {
   constructor(private readonly pros: ProsService) {}
 
+  /** Herkese açık: konuma göre usta keşfi. */
+  @Get('discover')
+  discover(@Query() query: DiscoverQueryDto) {
+    return this.pros.discover(query);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('me')
   getMine(@CurrentUser() user: JwtPayload) {
     return this.pros.getMine(user.sub);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Put('me')
   upsertMine(
     @CurrentUser() user: JwtPayload,
@@ -44,12 +53,14 @@ export class ProsController {
     return this.pros.upsertMine(user.sub, dto);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('me/submit')
   @HttpCode(HttpStatus.OK)
   submitMine(@CurrentUser() user: JwtPayload) {
     return this.pros.submitMine(user.sub);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('me/gallery')
   addGalleryImage(
     @CurrentUser() user: JwtPayload,
@@ -58,6 +69,7 @@ export class ProsController {
     return this.pros.addGalleryImage(user.sub, dto.url, dto.title);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Delete('me/gallery/:id')
   removeGalleryImage(
     @CurrentUser() user: JwtPayload,
