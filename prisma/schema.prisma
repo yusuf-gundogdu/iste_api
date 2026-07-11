@@ -57,6 +57,7 @@ model ProProfile {
   id                 String             @id @default(uuid())
   userId             String             @unique
   mainCategoryId     String
+  coverUrl           String?
   bio                String             @default("")
   yearsExperience    Int?
   serviceMode        ServiceMode        @default(ON_SITE)
@@ -77,9 +78,24 @@ model ProProfile {
   brands       ProProfileBrand[]
   regions      ProRegion[]
   workingHours WorkingHour[]
+  gallery      ProGalleryImage[]
 
   @@index([mainCategoryId])
   @@map("pro_profiles")
+}
+
+model ProGalleryImage {
+  id           String   @id @default(uuid())
+  proProfileId String
+  url          String
+  title        String?
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  proProfile ProProfile @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
+
+  @@index([proProfileId])
+  @@map("pro_gallery_images")
 }
 
 model ProProfileSubService {

@@ -37,6 +37,10 @@ export class UpsertProProfileDto {
   @IsUUID()
   mainCategoryId: string;
 
+  @IsOptional()
+  @Matches(/^\/uploads\/[\w.-]+$/)
+  coverUrl?: string;
+
   @IsString()
   @MaxLength(600)
   bio: string;

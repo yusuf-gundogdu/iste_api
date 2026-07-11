@@ -14,6 +14,7 @@ const profileInclude = {
   brands: { include: { brand: { select: { id: true, name: true } } } },
   regions: { select: { id: true, name: true } },
   workingHours: { orderBy: { dayOfWeek: 'asc' as const } },
+  gallery: { orderBy: { sortOrder: 'asc' as const } },
 } as const;
 
 @Injectable()
@@ -41,6 +42,7 @@ export class ProsService {
 
     const scalar = {
       mainCategoryId: dto.mainCategoryId,
+      coverUrl: dto.coverUrl,
       bio: dto.bio,
       yearsExperience: dto.yearsExperience,
       serviceMode: dto.serviceMode,
@@ -106,6 +108,39 @@ export class ProsService {
         include: profileInclude,
       });
     });
+  }
+
+  async addGalleryImage(userId: string, url: string, title?: string) {
+    const profile = await this.prisma.proProfile.findUnique({
+      where: { userId },
+      include: { _count: { select: { gallery: true } } },
+    });
+    if (!profile) {
+      throw new NotFoundException('Önce vitrinini kurmalısın');
+    }
+    if (profile._count.gallery >= 20) {
+      throw new BadRequestException('En fazla 20 iş örneği ekleyebilirsin');
+    }
+    return this.prisma.proGalleryImage.create({
+      data: {
+        proProfileId: profile.id,
+        url,
+        title,
+        sortOrder: profile._count.gallery,
+      },
+    });
+  }
+
+  async removeGalleryImage(userId: string, imageId: string) {
+    const image = await this.prisma.proGalleryImage.findUnique({
+      where: { id: imageId },
+      include: { proProfile: { select: { userId: true } } },
+    });
+    if (!image || image.proProfile.userId !== userId) {
+      throw new NotFoundException('Görsel bulunamadı');
+    }
+    await this.prisma.proGalleryImage.delete({ where: { id: imageId } });
+    return { deleted: true };
   }
 
   /** Vitrini doğrulamaya gönderir (missing/rejected → in_review). */
