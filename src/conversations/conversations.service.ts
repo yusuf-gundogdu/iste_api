@@ -38,7 +38,8 @@ export class ConversationsService {
         customerId_proProfileId: { customerId, proProfileId },
       },
       update: {},
-      create: { customerId, proProfileId },
+      // Hizmet kaydı sohbetle birlikte DISCUSSING olarak türer.
+      create: { customerId, proProfileId, serviceRecord: { create: {} } },
       include: this.conversationInclude(),
     });
   }
@@ -154,6 +155,7 @@ export class ConversationsService {
 
   private conversationInclude() {
     return {
+      serviceRecord: { select: { status: true, title: true } },
       customer: {
         select: { id: true, firstName: true, lastName: true, avatarUrl: true },
       },

@@ -164,9 +164,10 @@ model Conversation {
   createdAt     DateTime @default(now())
   lastMessageAt DateTime @default(now())
 
-  customer   User         @relation("customerConversations", fields: [customerId], references: [id], onDelete: Cascade)
-  proProfile ProProfile   @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
-  messages   Message[]
+  customer      User           @relation("customerConversations", fields: [customerId], references: [id], onDelete: Cascade)
+  proProfile    ProProfile     @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
+  messages      Message[]
+  serviceRecord ServiceRecord?
 
   @@unique([customerId, proProfileId])
   @@index([proProfileId])
@@ -190,6 +191,35 @@ model Message {
 
   @@index([conversationId, createdAt])
   @@map("messages")
+}
+
+// ─── Hizmet kaydı (sohbetten türeyen ikincil kayıt) ──────────────────────
+// UI'da ön planda değildir; sohbet ana yüzeydir. Statü her yüzeyde aynı
+// gösterilir (anayasa: çelişki yok).
+
+enum ServiceStatus {
+  DISCUSSING // görüşülüyor
+  PAYMENT_PENDING // ödeme bekleniyor
+  SCHEDULED // planlandı
+  IN_PROGRESS // devam ediyor
+  COMPLETED // tamamlandı
+  CANCELLED // iptal edildi
+}
+
+model ServiceRecord {
+  id             String        @id @default(uuid())
+  conversationId String        @unique
+  status         ServiceStatus @default(DISCUSSING)
+  title          String?
+  agreedAmount   Decimal?      @db.Decimal(10, 2)
+  scheduledAt    DateTime?
+  address        String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("service_records")
 }
 
 // ─── Katalog ─────────────────────────────────────────────────────────────
