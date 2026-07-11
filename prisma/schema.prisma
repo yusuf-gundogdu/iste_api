@@ -25,8 +25,108 @@ model User {
   updatedAt    DateTime @updatedAt
 
   refreshTokens RefreshToken[]
+  proProfile    ProProfile?
 
   @@map("users")
+}
+
+// ─── Usta vitrini ────────────────────────────────────────────────────────
+// Tek hesap iki mod: ProProfile varlığı usta modunu açar.
+// Doğrulanmadan (VERIFIED) vitrin yayınlanamaz — anayasa kuralı.
+
+enum VerificationStatus {
+  MISSING
+  IN_REVIEW
+  VERIFIED
+  REJECTED
+}
+
+enum PriceApproach {
+  NEGOTIABLE // fiyat konuşulur
+  STARTING // başlangıç fiyatı ₺X
+  FIXED // sabit hizmet ücreti ₺X
+}
+
+enum ServiceMode {
+  ON_SITE // yerinde
+  WORKSHOP // atölye
+  BOTH
+}
+
+model ProProfile {
+  id                 String             @id @default(uuid())
+  userId             String             @unique
+  mainCategoryId     String
+  bio                String             @default("")
+  yearsExperience    Int?
+  serviceMode        ServiceMode        @default(ON_SITE)
+  priceApproach      PriceApproach      @default(NEGOTIABLE)
+  priceAmount        Decimal?           @db.Decimal(10, 2)
+  city               String             @default("")
+  district           String             @default("")
+  latitude           Float?
+  longitude          Float?
+  verificationStatus VerificationStatus @default(MISSING)
+  isPublished        Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mainCategory Category            @relation(fields: [mainCategoryId], references: [id])
+  subServices  ProProfileSubService[]
+  brands       ProProfileBrand[]
+  regions      ProRegion[]
+  workingHours WorkingHour[]
+
+  @@index([mainCategoryId])
+  @@map("pro_profiles")
+}
+
+model ProProfileSubService {
+  proProfileId String
+  subServiceId String
+
+  proProfile ProProfile @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
+  subService SubService @relation(fields: [subServiceId], references: [id], onDelete: Cascade)
+
+  @@id([proProfileId, subServiceId])
+  @@map("pro_profile_sub_services")
+}
+
+model ProProfileBrand {
+  proProfileId String
+  brandId      String
+
+  proProfile ProProfile @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
+  brand      Brand      @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@id([proProfileId, brandId])
+  @@map("pro_profile_brands")
+}
+
+model ProRegion {
+  id           String @id @default(uuid())
+  proProfileId String
+  name         String // semt/bölge adı
+
+  proProfile ProProfile @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
+
+  @@index([proProfileId])
+  @@map("pro_regions")
+}
+
+model WorkingHour {
+  id           String  @id @default(uuid())
+  proProfileId String
+  dayOfWeek    Int // 1 = Pazartesi … 7 = Pazar
+  isOpen       Boolean @default(true)
+  opensAt      String  @default("09:00")
+  closesAt     String  @default("18:00")
+
+  proProfile ProProfile @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([proProfileId, dayOfWeek])
+  @@map("working_hours")
 }
 
 // ─── Katalog ─────────────────────────────────────────────────────────────
@@ -42,6 +142,7 @@ model Category {
 
   subServices SubService[]
   brands      Brand[]
+  proProfiles ProProfile[]
 
   @@map("categories")
 }
@@ -53,7 +154,8 @@ model SubService {
   name       String
   sortOrder  Int    @default(0)
 
-  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  category    Category               @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  proProfiles ProProfileSubService[]
 
   @@index([categoryId])
   @@map("sub_services")
@@ -64,7 +166,8 @@ model Brand {
   categoryId String
   name       String
 
-  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  category    Category          @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  proProfiles ProProfileBrand[]
 
   @@unique([categoryId, name])
   @@map("brands")
