@@ -168,6 +168,7 @@ model Conversation {
   proProfile    ProProfile     @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
   messages      Message[]
   serviceRecord ServiceRecord?
+  payments      Payment[]
 
   @@unique([customerId, proProfileId])
   @@index([proProfileId])
@@ -218,8 +219,62 @@ model ServiceRecord {
   updatedAt      DateTime      @updatedAt
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  payments     Payment[]
 
   @@map("service_records")
+}
+
+// ─── Güvenli ödeme (escrow — opsiyonel güven katmanı) ────────────────────
+// Para korumalı havuzda bekler; hizmet onaylanınca ustaya aktarılır.
+// Komisyon %2, ustadan kesilir. Cüzdan/bakiye kavramı YOK.
+
+enum PaymentStatus {
+  REQUESTED // usta ödeme talebi oluşturdu
+  PROCESSING // müşteri 3DS akışında
+  SECURED // ödeme alındı, güvencede
+  RELEASED // hizmet onaylandı, ustaya aktarıldı
+  FAILED // ödeme başarısız (paran çekilmedi)
+  REFUND_REQUESTED // müşteri iade talebi girdi
+  REFUNDED // iade edildi
+  CANCELLED // talep iptal edildi
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  conversationId    String
+  serviceRecordId   String
+  requestedByUserId String // usta
+  paidByUserId      String? // müşteri
+  amount            Decimal       @db.Decimal(10, 2)
+  commissionRate    Decimal       @default(0.02) @db.Decimal(5, 4)
+  commissionAmount  Decimal       @db.Decimal(10, 2)
+  netAmount         Decimal       @db.Decimal(10, 2)
+  note              String?
+  status            PaymentStatus @default(REQUESTED)
+  providerRef       String? // sağlayıcı ödeme/işlem referansı
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  conversation  Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  serviceRecord ServiceRecord  @relation(fields: [serviceRecordId], references: [id], onDelete: Cascade)
+  events        PaymentEvent[]
+
+  @@index([conversationId])
+  @@map("payments")
+}
+
+/// İşlem durumu zaman çizgisi (anayasa: ödeme detayında görünür).
+model PaymentEvent {
+  id        String        @id @default(uuid())
+  paymentId String
+  status    PaymentStatus
+  note      String?
+  createdAt DateTime      @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId, createdAt])
+  @@map("payment_events")
 }
 
 // ─── Katalog ─────────────────────────────────────────────────────────────

@@ -1,0 +1,334 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { PaymentProvider } from './providers/payment.provider';
+
+const COMMISSION_RATE = 0.02;
+
+type PaymentStatus =
+  | 'REQUESTED'
+  | 'PROCESSING'
+  | 'SECURED'
+  | 'RELEASED'
+  | 'FAILED'
+  | 'REFUND_REQUESTED'
+  | 'REFUNDED'
+  | 'CANCELLED';
+
+@Injectable()
+export class PaymentsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly provider: PaymentProvider,
+  ) {}
+
+  /** Usta sohbetten ödeme talebi oluşturur → hizmet PAYMENT_PENDING. */
+  async createRequest(
+    proUserId: string,
+    input: {
+      conversationId: string;
+      amount: number;
+      title?: string;
+      note?: string;
+    },
+  ) {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: input.conversationId },
+      include: {
+        proProfile: { select: { userId: true } },
+        serviceRecord: true,
+      },
+    });
+    if (!conversation) throw new NotFoundException('Sohbet bulunamadı');
+    if (conversation.proProfile.userId !== proUserId) {
+      throw new ForbiddenException('Ödeme talebini yalnız usta oluşturur');
+    }
+    const record = conversation.serviceRecord;
+    if (!record) throw new NotFoundException('Hizmet kaydı bulunamadı');
+    if (record.status === 'COMPLETED' || record.status === 'CANCELLED') {
+      throw new BadRequestException(
+        'Tamamlanmış/iptal edilmiş hizmet için ödeme talebi oluşturulamaz',
+      );
+    }
+
+    const open = await this.prisma.payment.findFirst({
+      where: {
+        serviceRecordId: record.id,
+        status: { in: ['REQUESTED', 'PROCESSING', 'SECURED'] },
+      },
+    });
+    if (open) {
+      throw new BadRequestException('Bu hizmet için açık bir ödeme zaten var');
+    }
+
+    const commission = Math.round(input.amount * COMMISSION_RATE * 100) / 100;
+    const [payment] = await this.prisma.$transaction([
+      this.prisma.payment.create({
+        data: {
+          conversationId: conversation.id,
+          serviceRecordId: record.id,
+          requestedByUserId: proUserId,
+          amount: input.amount,
+          commissionRate: COMMISSION_RATE,
+          commissionAmount: commission,
+          netAmount: input.amount - commission,
+          note: input.note,
+          events: { create: { status: 'REQUESTED' } },
+        },
+      }),
+      this.prisma.serviceRecord.update({
+        where: { id: record.id },
+        data: {
+          status: 'PAYMENT_PENDING',
+          title: input.title ?? record.title,
+          agreedAmount: input.amount,
+        },
+      }),
+      // Sohbete bilgi mesajı düşer (bağlam kaybolmaz).
+      this.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderId: proUserId,
+          type: 'TEXT',
+          body:
+            `💳 Ödeme talebi oluşturuldu: ₺${input.amount.toFixed(0)}` +
+            ((input.title ?? record.title)
+              ? ` · ${input.title ?? record.title}`
+              : ''),
+        },
+      }),
+    ]);
+    return this.serialize(payment.id);
+  }
+
+  /** Müşteri "Güvenli Ödeme Yap" → 3DS oturumu başlar. */
+  async checkout(customerId: string, paymentId: string, apiBaseUrl: string) {
+    const payment = await this.byIdForUser(paymentId, customerId);
+    if (payment.requestedByUserId === customerId) {
+      throw new ForbiddenException('Kendi talebini ödeyemezsin');
+    }
+    if (payment.status !== 'REQUESTED' && payment.status !== 'FAILED') {
+      throw new BadRequestException('Bu ödeme şu an başlatılamaz');
+    }
+
+    const session = await this.provider.initCheckout({
+      paymentId,
+      amount: Number(payment.amount),
+      buyerId: customerId,
+      callbackUrl: `${apiBaseUrl}/payments/${paymentId}/callback`,
+    });
+
+    await this.prisma.payment.update({
+      where: { id: paymentId },
+      data: {
+        status: 'PROCESSING',
+        paidByUserId: customerId,
+        providerRef: session.providerRef,
+        events: { create: { status: 'PROCESSING' } },
+      },
+    });
+    return { checkoutUrl: session.checkoutUrl };
+  }
+
+  /** Sağlayıcı callback'i — başarıda SECURED, hizmet SCHEDULED. */
+  async handleCallback(
+    paymentId: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ success: boolean }> {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+    });
+    if (!payment || payment.status !== 'PROCESSING') {
+      return { success: false };
+    }
+
+    const verification = await this.provider.verifyPayment({
+      paymentId,
+      providerRef: payment.providerRef ?? '',
+      callbackPayload: payload,
+    });
+
+    if (verification.success) {
+      await this.prisma.$transaction([
+        this.prisma.payment.update({
+          where: { id: paymentId },
+          data: {
+            status: 'SECURED',
+            events: {
+              create: { status: 'SECURED', note: 'Ödeme güvencede' },
+            },
+          },
+        }),
+        this.prisma.serviceRecord.update({
+          where: { id: payment.serviceRecordId },
+          data: { status: 'SCHEDULED' },
+        }),
+        this.prisma.message.create({
+          data: {
+            conversationId: payment.conversationId,
+            senderId: payment.paidByUserId ?? payment.requestedByUserId,
+            type: 'TEXT',
+            body: '✅ Güvenli ödeme yapıldı — para güvencede, hizmet planlandı.',
+          },
+        }),
+      ]);
+    } else {
+      // Başarısız ödeme sahte "ödendi" üretmez (anayasa).
+      await this.prisma.payment.update({
+        where: { id: paymentId },
+        data: {
+          status: 'FAILED',
+          events: {
+            create: { status: 'FAILED', note: 'Paran çekilmedi' },
+          },
+        },
+      });
+    }
+    return { success: verification.success };
+  }
+
+  /** Müşteri hizmeti onaylar → escrow ustaya aktarılır. */
+  async release(customerId: string, paymentId: string) {
+    const payment = await this.byIdForUser(paymentId, customerId);
+    if (payment.paidByUserId !== customerId) {
+      throw new ForbiddenException('Aktarımı yalnız ödeyen müşteri onaylar');
+    }
+    if (payment.status !== 'SECURED') {
+      throw new BadRequestException('Ödeme güvencede değil');
+    }
+    const record = await this.prisma.serviceRecord.findUnique({
+      where: { id: payment.serviceRecordId },
+    });
+    if (record?.status !== 'COMPLETED') {
+      throw new BadRequestException(
+        'Önce ustanın hizmeti tamamlaması gerekiyor',
+      );
+    }
+
+    await this.provider.releaseToPro({
+      paymentId,
+      providerRef: payment.providerRef ?? '',
+    });
+    await this.prisma.payment.update({
+      where: { id: paymentId },
+      data: {
+        status: 'RELEASED',
+        events: {
+          create: { status: 'RELEASED', note: 'Ustaya aktarıldı' },
+        },
+      },
+    });
+    return this.serialize(paymentId);
+  }
+
+  /** Müşteri iade talebi girer (dispute engine yok — yalnız iz). */
+  async requestRefund(customerId: string, paymentId: string, note?: string) {
+    const payment = await this.byIdForUser(paymentId, customerId);
+    if (payment.paidByUserId !== customerId) {
+      throw new ForbiddenException('İade talebini yalnız ödeyen müşteri girer');
+    }
+    if (payment.status !== 'SECURED') {
+      throw new BadRequestException('Yalnız güvencedeki ödeme iade edilebilir');
+    }
+    await this.prisma.payment.update({
+      where: { id: paymentId },
+      data: {
+        status: 'REFUND_REQUESTED',
+        events: { create: { status: 'REFUND_REQUESTED', note } },
+      },
+    });
+    return this.serialize(paymentId);
+  }
+
+  /** Kullanıcının ödeme listesi (müşteri + usta rolleri). */
+  async listMine(userId: string) {
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        OR: [{ paidByUserId: userId }, { requestedByUserId: userId }],
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        serviceRecord: { select: { title: true, status: true } },
+        events: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+    return payments.map((p) => this.toDto(p, userId));
+  }
+
+  async detail(userId: string, paymentId: string) {
+    await this.byIdForUser(paymentId, userId);
+    return this.serialize(paymentId, userId);
+  }
+
+  private async byIdForUser(paymentId: string, userId: string) {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        conversation: {
+          select: {
+            customerId: true,
+            proProfile: { select: { userId: true } },
+          },
+        },
+      },
+    });
+    if (!payment) throw new NotFoundException('Ödeme bulunamadı');
+    const isParty =
+      payment.conversation.customerId === userId ||
+      payment.conversation.proProfile.userId === userId;
+    if (!isParty) throw new ForbiddenException('Bu ödemeye erişimin yok');
+    return payment;
+  }
+
+  private async serialize(paymentId: string, userId?: string) {
+    const payment = await this.prisma.payment.findUniqueOrThrow({
+      where: { id: paymentId },
+      include: {
+        serviceRecord: { select: { title: true, status: true } },
+        events: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+    return this.toDto(payment, userId);
+  }
+
+  private toDto(
+    payment: {
+      id: string;
+      conversationId: string;
+      status: string;
+      amount: unknown;
+      commissionAmount: unknown;
+      netAmount: unknown;
+      note: string | null;
+      requestedByUserId: string;
+      paidByUserId: string | null;
+      createdAt: Date;
+      serviceRecord: { title: string | null; status: string };
+      events: Array<{ status: string; note: string | null; createdAt: Date }>;
+    },
+    userId?: string,
+  ) {
+    return {
+      id: payment.id,
+      conversationId: payment.conversationId,
+      status: payment.status as PaymentStatus,
+      amount: Number(payment.amount),
+      commissionAmount: Number(payment.commissionAmount),
+      netAmount: Number(payment.netAmount),
+      note: payment.note,
+      title: payment.serviceRecord.title,
+      serviceStatus: payment.serviceRecord.status,
+      isRequester: userId ? payment.requestedByUserId === userId : undefined,
+      createdAt: payment.createdAt,
+      timeline: payment.events.map((e) => ({
+        status: e.status,
+        note: e.note,
+        at: e.createdAt,
+      })),
+    };
+  }
+}
