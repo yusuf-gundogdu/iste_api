@@ -4,15 +4,6 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
-import { SmsSender } from './../src/auth/sms.sender';
-
-class CapturingSmsSender extends SmsSender {
-  lastCode = '';
-  sendOtp(_phone: string, code: string): Promise<void> {
-    this.lastCode = code;
-    return Promise.resolve();
-  }
-}
 
 describe('Conversations (e2e)', () => {
   let app: INestApplication<App>;
@@ -21,28 +12,23 @@ describe('Conversations (e2e)', () => {
   let proToken: string;
   let proProfileId: string;
   let conversationId: string;
-  const customerPhone = '+905009990004';
-  const sms = new CapturingSmsSender();
+  const customerSub = 'test-kullanici-4';
 
-  const login = async (phone: string) => {
-    await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/request')
-      .send({ phone })
+  const login = async (sub: string) => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/auth/social')
+      .send({
+        provider: 'GOOGLE',
+        idToken: JSON.stringify({ sub, email: `${sub}@test.iste` }),
+      })
       .expect(200);
-    const verify = await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/verify')
-      .send({ phone, code: sms.lastCode })
-      .expect(200);
-    return (verify.body as { accessToken: string }).accessToken;
+    return (res.body as { accessToken: string }).accessToken;
   };
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    })
-      .overrideProvider(SmsSender)
-      .useValue(sms)
-      .compile();
+    }).compile();
 
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api/v1');
@@ -52,10 +38,9 @@ describe('Conversations (e2e)', () => {
     await app.init();
     prisma = app.get(PrismaService);
 
-    await prisma.user.deleteMany({ where: { phone: customerPhone } });
-    await prisma.otpCode.deleteMany({});
+    await prisma.user.deleteMany({ where: { providerSub: customerSub } });
 
-    customerToken = await login(customerPhone);
+    customerToken = await login(customerSub);
 
     // Seed'deki doğrulanmış bir usta + o ustanın kullanıcısıyla giriş.
     const pro = await prisma.proProfile.findFirstOrThrow({
@@ -63,11 +48,11 @@ describe('Conversations (e2e)', () => {
       include: { user: true },
     });
     proProfileId = pro.id;
-    proToken = await login(pro.user.phone);
+    proToken = await login(pro.user.providerSub);
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { phone: customerPhone } });
+    await prisma.user.deleteMany({ where: { providerSub: customerSub } });
     await app.close();
   });
 
@@ -143,11 +128,13 @@ describe('Conversations (e2e)', () => {
   });
 
   it('üçüncü kişi sohbete erişemez', async () => {
-    const stranger = await login('+905009990005');
+    const stranger = await login('test-kullanici-5');
     await request(app.getHttpServer())
       .get(`/api/v1/conversations/${conversationId}/messages`)
       .set('Authorization', `Bearer ${stranger}`)
       .expect(403);
-    await prisma.user.deleteMany({ where: { phone: '+905009990005' } });
+    await prisma.user.deleteMany({
+      where: { providerSub: 'test-kullanici-5' },
+    });
   });
 });

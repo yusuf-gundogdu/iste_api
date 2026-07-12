@@ -13,16 +13,24 @@ datasource db {
 
 // ─── Kimlik ───────────────────────────────────────────────────────────────
 // Tek hesap, iki mod (müşteri / usta). Usta modu ProProfile varlığıyla açılır.
+// Giriş YALNIZ Google/Apple iledir (ürün kararı — başka yöntem yok).
+
+enum AuthProvider {
+  GOOGLE
+  APPLE
+}
 
 model User {
-  id           String   @id @default(uuid())
-  phone        String   @unique
-  firstName    String?
-  lastName     String?
-  avatarUrl    String?
-  isAdmin      Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String       @id @default(uuid())
+  provider    AuthProvider
+  providerSub String // sağlayıcının kararlı kullanıcı kimliği
+  email       String?
+  firstName   String?
+  lastName    String?
+  avatarUrl   String?
+  isAdmin     Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   refreshTokens         RefreshToken[]
   proProfile            ProProfile?
@@ -33,6 +41,7 @@ model User {
   addresses             Address[]
   notifications         Notification[]
 
+  @@unique([provider, providerSub])
   @@map("users")
 }
 
@@ -411,19 +420,6 @@ model Brand {
 
   @@unique([categoryId, name])
   @@map("brands")
-}
-
-model OtpCode {
-  id         String    @id @default(uuid())
-  phone      String
-  codeHash   String
-  expiresAt  DateTime
-  attempts   Int       @default(0)
-  consumedAt DateTime?
-  createdAt  DateTime  @default(now())
-
-  @@index([phone, createdAt])
-  @@map("otp_codes")
 }
 
 model RefreshToken {

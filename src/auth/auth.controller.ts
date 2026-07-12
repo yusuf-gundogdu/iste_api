@@ -7,27 +7,29 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { IsIn, IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import type { JwtPayload } from './auth.service';
-import { RequestOtpDto } from './dto/request-otp.dto';
-import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { CurrentUser, JwtAuthGuard } from './jwt-auth.guard';
+
+class SocialLoginDto {
+  @IsIn(['GOOGLE', 'APPLE'])
+  provider: 'GOOGLE' | 'APPLE';
+
+  @IsString()
+  @MinLength(10)
+  idToken: string;
+}
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
-  @Post('otp/request')
+  @Post('social')
   @HttpCode(HttpStatus.OK)
-  requestOtp(@Body() dto: RequestOtpDto) {
-    return this.auth.requestOtp(dto.phone);
-  }
-
-  @Post('otp/verify')
-  @HttpCode(HttpStatus.OK)
-  verifyOtp(@Body() dto: VerifyOtpDto) {
-    return this.auth.verifyOtp(dto.phone, dto.code);
+  socialLogin(@Body() dto: SocialLoginDto) {
+    return this.auth.socialLogin(dto.provider, dto.idToken);
   }
 
   @Post('refresh')

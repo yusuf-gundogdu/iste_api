@@ -1,19 +1,9 @@
-import {
-  BadRequestException,
-  HttpException,
-  HttpStatus,
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { createHash, randomBytes, randomInt } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { SmsSender } from './sms.sender';
+import { SocialProvider, SocialTokenVerifier } from './social-token.verifier';
 
-const OTP_TTL_MS = 3 * 60 * 1000;
-const OTP_MAX_ATTEMPTS = 5;
-const OTP_REQUEST_LIMIT = 5; // 10 dakikada aynı numaraya en çok 5 kod
-const OTP_REQUEST_WINDOW_MS = 10 * 60 * 1000;
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface AuthTokens {
@@ -29,86 +19,37 @@ export interface JwtPayload {
 const sha256 = (value: string) =>
   createHash('sha256').update(value).digest('hex');
 
-/** +905XXXXXXXXX kanonik biçimine çevirir. */
-export const normalizePhone = (raw: string): string => {
-  const digits = raw.replace(/\D/g, '');
-  const national = digits.startsWith('90')
-    ? digits.slice(2)
-    : digits.startsWith('0')
-      ? digits.slice(1)
-      : digits;
-  return `+90${national}`;
-};
-
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
-    private readonly sms: SmsSender,
+    private readonly verifier: SocialTokenVerifier,
   ) {}
 
-  async requestOtp(rawPhone: string): Promise<{ expiresInSeconds: number }> {
-    const phone = normalizePhone(rawPhone);
-
-    const recentCount = await this.prisma.otpCode.count({
-      where: {
-        phone,
-        createdAt: { gte: new Date(Date.now() - OTP_REQUEST_WINDOW_MS) },
-      },
-    });
-    if (recentCount >= OTP_REQUEST_LIMIT) {
-      throw new HttpException(
-        'Çok fazla kod istedin · birkaç dakika sonra tekrar dene',
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-
-    const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
-    await this.prisma.otpCode.create({
-      data: {
-        phone,
-        codeHash: sha256(code),
-        expiresAt: new Date(Date.now() + OTP_TTL_MS),
-      },
-    });
-    await this.sms.sendOtp(phone, code);
-
-    return { expiresInSeconds: OTP_TTL_MS / 1000 };
-  }
-
-  async verifyOtp(
-    rawPhone: string,
-    code: string,
+  /** Google/Apple kimliğiyle giriş — kullanıcı yoksa oluşturulur. */
+  async socialLogin(
+    provider: SocialProvider,
+    idToken: string,
   ): Promise<AuthTokens & { isNewUser: boolean }> {
-    const phone = normalizePhone(rawPhone);
+    const identity = await this.verifier.verify(provider, idToken);
 
-    const otp = await this.prisma.otpCode.findFirst({
-      where: { phone, consumedAt: null, expiresAt: { gte: new Date() } },
-      orderBy: { createdAt: 'desc' },
+    const existing = await this.prisma.user.findUnique({
+      where: {
+        provider_providerSub: { provider, providerSub: identity.sub },
+      },
     });
-    if (!otp) {
-      throw new BadRequestException('Kodun süresi dolmuş · yeni kod iste');
-    }
-    if (otp.attempts >= OTP_MAX_ATTEMPTS) {
-      throw new BadRequestException('Çok fazla hatalı deneme · yeni kod iste');
-    }
-    if (otp.codeHash !== sha256(code)) {
-      await this.prisma.otpCode.update({
-        where: { id: otp.id },
-        data: { attempts: { increment: 1 } },
-      });
-      throw new BadRequestException('Kod hatalı · tekrar dene');
-    }
-
-    await this.prisma.otpCode.update({
-      where: { id: otp.id },
-      data: { consumedAt: new Date() },
-    });
-
-    const existing = await this.prisma.user.findUnique({ where: { phone } });
     const user =
-      existing ?? (await this.prisma.user.create({ data: { phone } }));
+      existing ??
+      (await this.prisma.user.create({
+        data: {
+          provider,
+          providerSub: identity.sub,
+          email: identity.email,
+          firstName: identity.firstName,
+          lastName: identity.lastName,
+        },
+      }));
 
     const tokens = await this.issueTokens(user.id, user.isAdmin);
     return { ...tokens, isNewUser: !existing };
@@ -134,7 +75,7 @@ export class AuthService {
       where: { id: userId },
       select: {
         id: true,
-        phone: true,
+        email: true,
         firstName: true,
         lastName: true,
         avatarUrl: true,

@@ -5,30 +5,17 @@ import { App } from 'supertest/types';
 import sharp from 'sharp';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
-import { SmsSender } from './../src/auth/sms.sender';
-
-class CapturingSmsSender extends SmsSender {
-  lastCode = '';
-  sendOtp(_phone: string, code: string): Promise<void> {
-    this.lastCode = code;
-    return Promise.resolve();
-  }
-}
 
 describe('Uploads (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let token: string;
-  const phone = '+905009990003';
-  const sms = new CapturingSmsSender();
+  const sub = 'test-kullanici-3';
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    })
-      .overrideProvider(SmsSender)
-      .useValue(sms)
-      .compile();
+    }).compile();
 
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api/v1');
@@ -38,23 +25,20 @@ describe('Uploads (e2e)', () => {
     await app.init();
 
     prisma = app.get(PrismaService);
-    await prisma.user.deleteMany({ where: { phone } });
-    await prisma.otpCode.deleteMany({ where: { phone } });
+    await prisma.user.deleteMany({ where: { providerSub: sub } });
 
-    await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/request')
-      .send({ phone })
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/auth/social')
+      .send({
+        provider: 'GOOGLE',
+        idToken: JSON.stringify({ sub, email: `${sub}@test.iste` }),
+      })
       .expect(200);
-    const verify = await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/verify')
-      .send({ phone, code: sms.lastCode })
-      .expect(200);
-    token = (verify.body as { accessToken: string }).accessToken;
+    token = (login.body as { accessToken: string }).accessToken;
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { phone } });
-    await prisma.otpCode.deleteMany({ where: { phone } });
+    await prisma.user.deleteMany({ where: { providerSub: sub } });
     await app.close();
   });
 

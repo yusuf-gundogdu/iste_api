@@ -4,15 +4,6 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
-import { SmsSender } from './../src/auth/sms.sender';
-
-class CapturingSmsSender extends SmsSender {
-  lastCode = '';
-  sendOtp(_phone: string, code: string): Promise<void> {
-    this.lastCode = code;
-    return Promise.resolve();
-  }
-}
 
 describe('Payments (e2e) — escrow akışı', () => {
   let app: INestApplication<App>;
@@ -21,28 +12,23 @@ describe('Payments (e2e) — escrow akışı', () => {
   let proToken: string;
   let conversationId: string;
   let paymentId: string;
-  const customerPhone = '+905009990007';
-  const sms = new CapturingSmsSender();
+  const customerSub = 'test-kullanici-7';
 
-  const login = async (phone: string) => {
-    await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/request')
-      .send({ phone })
+  const login = async (sub: string) => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/auth/social')
+      .send({
+        provider: 'GOOGLE',
+        idToken: JSON.stringify({ sub, email: `${sub}@test.iste` }),
+      })
       .expect(200);
-    const verify = await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/verify')
-      .send({ phone, code: sms.lastCode })
-      .expect(200);
-    return (verify.body as { accessToken: string }).accessToken;
+    return (res.body as { accessToken: string }).accessToken;
   };
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    })
-      .overrideProvider(SmsSender)
-      .useValue(sms)
-      .compile();
+    }).compile();
 
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api/v1');
@@ -52,14 +38,14 @@ describe('Payments (e2e) — escrow akışı', () => {
     await app.init();
     prisma = app.get(PrismaService);
 
-    await prisma.user.deleteMany({ where: { phone: customerPhone } });
-    customerToken = await login(customerPhone);
+    await prisma.user.deleteMany({ where: { providerSub: customerSub } });
+    customerToken = await login(customerSub);
 
     const pro = await prisma.proProfile.findFirstOrThrow({
       where: { verificationStatus: 'VERIFIED', isPublished: true },
       include: { user: true },
     });
-    proToken = await login(pro.user.phone);
+    proToken = await login(pro.user.providerSub);
 
     const conversation = await request(app.getHttpServer())
       .post('/api/v1/conversations')
@@ -70,7 +56,7 @@ describe('Payments (e2e) — escrow akışı', () => {
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { phone: customerPhone } });
+    await prisma.user.deleteMany({ where: { providerSub: customerSub } });
     await app.close();
   });
 
@@ -205,7 +191,7 @@ describe('Payments (e2e) — escrow akışı', () => {
       .expect(200);
     const convId = (conversation.body as { id: string }).id;
 
-    const pro2Token = await login(pro2.user.phone);
+    const pro2Token = await login(pro2.user.providerSub);
     const paymentRes = await request(app.getHttpServer())
       .post('/api/v1/payments/request')
       .set('Authorization', `Bearer ${pro2Token}`)

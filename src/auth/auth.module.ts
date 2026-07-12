@@ -4,7 +4,11 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
-import { ConsoleSmsSender, SmsSender } from './sms.sender';
+import {
+  DevSocialTokenVerifier,
+  LiveSocialTokenVerifier,
+  SocialTokenVerifier,
+} from './social-token.verifier';
 
 @Module({
   imports: [
@@ -21,7 +25,13 @@ import { ConsoleSmsSender, SmsSender } from './sms.sender';
   providers: [
     AuthService,
     JwtAuthGuard,
-    { provide: SmsSender, useClass: ConsoleSmsSender },
+    {
+      provide: SocialTokenVerifier,
+      useClass:
+        process.env.GOOGLE_CLIENT_ID || process.env.APPLE_BUNDLE_ID
+          ? LiveSocialTokenVerifier
+          : DevSocialTokenVerifier,
+    },
   ],
   exports: [AuthService, JwtAuthGuard],
 })

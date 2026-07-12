@@ -62,7 +62,7 @@ export class AdminService {
       orderBy: { updatedAt: 'asc' },
       include: {
         user: {
-          select: { firstName: true, lastName: true, phone: true },
+          select: { firstName: true, lastName: true, email: true },
         },
         mainCategory: { select: { name: true } },
         subServices: { include: { subService: { select: { name: true } } } },

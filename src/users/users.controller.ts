@@ -33,7 +33,7 @@ export class UsersController {
       data: dto,
       select: {
         id: true,
-        phone: true,
+        email: true,
         firstName: true,
         lastName: true,
         avatarUrl: true,

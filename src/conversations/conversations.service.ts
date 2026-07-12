@@ -96,13 +96,19 @@ export class ConversationsService {
   async messages(conversationId: string, userId: string, cursor?: string) {
     await this.assertParticipant(conversationId, userId);
 
-    const messages = await this.prisma.message.findMany({
-      where: { conversationId },
-      orderBy: { createdAt: 'asc' },
-      ...(cursor
-        ? { cursor: { id: cursor }, skip: 1, take: 50 }
-        : { take: 500 }),
-    });
+    const messages = cursor
+      ? await this.prisma.message.findMany({
+          where: { conversationId },
+          orderBy: { createdAt: 'asc' },
+          cursor: { id: cursor },
+          skip: 1,
+          take: 50,
+        })
+      : await this.prisma.message.findMany({
+          where: { conversationId },
+          orderBy: { createdAt: 'asc' },
+          take: 500,
+        });
 
     // Karşı tarafın mesajlarını okundu işaretle.
     await this.prisma.message.updateMany({
@@ -120,15 +126,29 @@ export class ConversationsService {
   async send(input: SendMessageInput) {
     await this.assertParticipant(input.conversationId, input.senderId);
 
+    // Kurallar burada yaşar: REST, WebSocket ve gelecekteki tüm
+    // çağıranlar aynı doğrulamadan geçer (kanal bazlı asimetri olmaz).
+    if (!['TEXT', 'IMAGE', 'LOCATION'].includes(input.type)) {
+      throw new BadRequestException('Geçersiz mesaj tipi');
+    }
     if (input.type === 'TEXT' && !input.body?.trim()) {
       throw new BadRequestException('Mesaj boş olamaz');
     }
-    if (input.type === 'IMAGE' && !input.imageUrl) {
+    if ((input.body ?? '').length > 2000) {
+      throw new BadRequestException('Mesaj çok uzun');
+    }
+    if (
+      input.type === 'IMAGE' &&
+      !/^\/uploads\/[\w.-]+$/.test(input.imageUrl ?? '')
+    ) {
       throw new BadRequestException('Görsel gerekli');
     }
     if (
       input.type === 'LOCATION' &&
-      (input.latitude == null || input.longitude == null)
+      (input.latitude == null ||
+        input.longitude == null ||
+        Math.abs(input.latitude) > 90 ||
+        Math.abs(input.longitude) > 180)
     ) {
       throw new BadRequestException('Konum gerekli');
     }

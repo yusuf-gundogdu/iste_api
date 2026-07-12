@@ -4,30 +4,16 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
-import { SmsSender } from './../src/auth/sms.sender';
 
-/** Test içinde gönderilen son OTP kodunu yakalar. */
-class CapturingSmsSender extends SmsSender {
-  lastCode = '';
-  sendOtp(_phone: string, code: string): Promise<void> {
-    this.lastCode = code;
-    return Promise.resolve();
-  }
-}
-
-describe('Auth (e2e)', () => {
+describe('Auth (e2e) — Google/Apple girişi', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
-  const sms = new CapturingSmsSender();
-  const phone = '+905009990001';
+  const sub = 'test-kullanici-1';
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    })
-      .overrideProvider(SmsSender)
-      .useValue(sms)
-      .compile();
+    }).compile();
 
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api/v1');
@@ -37,47 +23,40 @@ describe('Auth (e2e)', () => {
     await app.init();
 
     prisma = app.get(PrismaService);
-    await prisma.user.deleteMany({ where: { phone } });
-    await prisma.otpCode.deleteMany({ where: { phone } });
+    await prisma.user.deleteMany({ where: { providerSub: sub } });
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { phone } });
-    await prisma.otpCode.deleteMany({ where: { phone } });
+    await prisma.user.deleteMany({ where: { providerSub: sub } });
     await app.close();
   });
 
-  it('geçersiz telefon 400 döner', async () => {
+  it('geçersiz sağlayıcı 400 döner', async () => {
     await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/request')
-      .send({ phone: '12345' })
+      .post('/api/v1/auth/social')
+      .send({ provider: 'FACEBOOK', idToken: 'x'.repeat(20) })
       .expect(400);
   });
 
-  it('OTP iste → yanlış kod 400 → doğru kod token döner → me çalışır → refresh rotasyonu', async () => {
-    // 1. Kod iste
-    const reqRes = await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/request')
-      .send({ phone })
-      .expect(200);
-    expect((reqRes.body as { expiresInSeconds: number }).expiresInSeconds).toBe(
-      180,
-    );
-    expect(sms.lastCode).toMatch(/^\d{6}$/);
-
-    // 2. Yanlış kod reddedilir
-    const wrongCode = sms.lastCode === '000000' ? '111111' : '000000';
+  it('bozuk token 401 döner', async () => {
     await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/verify')
-      .send({ phone, code: wrongCode })
-      .expect(400);
+      .post('/api/v1/auth/social')
+      .send({ provider: 'GOOGLE', idToken: 'bozuk-token-payload' })
+      .expect(401);
+  });
 
-    // 3. Doğru kod token verir
-    const verifyRes = await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/verify')
-      .send({ phone, code: sms.lastCode })
+  it('Google girişi: ilk giriş kullanıcı yaratır, sonraki aynı hesaba döner', async () => {
+    const idToken = JSON.stringify({
+      sub,
+      email: 'test@iste.app',
+      firstName: 'Test',
+    });
+
+    const first = await request(app.getHttpServer())
+      .post('/api/v1/auth/social')
+      .send({ provider: 'GOOGLE', idToken })
       .expect(200);
-    const tokens = verifyRes.body as {
+    const tokens = first.body as {
       accessToken: string;
       refreshToken: string;
       isNewUser: boolean;
@@ -85,33 +64,42 @@ describe('Auth (e2e)', () => {
     expect(tokens.isNewUser).toBe(true);
     expect(tokens.accessToken).toBeTruthy();
 
-    // 4. Aynı kod ikinci kez kullanılamaz (tek kullanımlık)
-    await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/verify')
-      .send({ phone, code: sms.lastCode })
-      .expect(400);
+    const second = await request(app.getHttpServer())
+      .post('/api/v1/auth/social')
+      .send({ provider: 'GOOGLE', idToken })
+      .expect(200);
+    expect((second.body as { isNewUser: boolean }).isNewUser).toBe(false);
 
-    // 5. me korumalı endpoint çalışır
-    const meRes = await request(app.getHttpServer())
+    const me = await request(app.getHttpServer())
       .get('/api/v1/auth/me')
       .set('Authorization', `Bearer ${tokens.accessToken}`)
       .expect(200);
-    expect((meRes.body as { phone: string }).phone).toBe(phone);
+    expect((me.body as { email: string }).email).toBe('test@iste.app');
 
-    // 6. Token'sız me 401
     await request(app.getHttpServer()).get('/api/v1/auth/me').expect(401);
 
-    // 7. Refresh rotasyonu: yeni çift gelir, eski refresh artık geçersiz
-    const refreshRes = await request(app.getHttpServer())
+    const refreshed = await request(app.getHttpServer())
       .post('/api/v1/auth/refresh')
       .send({ refreshToken: tokens.refreshToken })
       .expect(200);
-    const rotated = refreshRes.body as { refreshToken: string };
-    expect(rotated.refreshToken).not.toBe(tokens.refreshToken);
+    expect((refreshed.body as { refreshToken: string }).refreshToken).not.toBe(
+      tokens.refreshToken,
+    );
 
     await request(app.getHttpServer())
       .post('/api/v1/auth/refresh')
       .send({ refreshToken: tokens.refreshToken })
       .expect(401);
+  });
+
+  it('aynı sub farklı sağlayıcıda ayrı hesaptır', async () => {
+    const apple = await request(app.getHttpServer())
+      .post('/api/v1/auth/social')
+      .send({ provider: 'APPLE', idToken: JSON.stringify({ sub }) })
+      .expect(200);
+    expect((apple.body as { isNewUser: boolean }).isNewUser).toBe(true);
+    await prisma.user.deleteMany({
+      where: { provider: 'APPLE', providerSub: sub },
+    });
   });
 });

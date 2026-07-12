@@ -4,15 +4,6 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
-import { SmsSender } from './../src/auth/sms.sender';
-
-class CapturingSmsSender extends SmsSender {
-  lastCode = '';
-  sendOtp(_phone: string, code: string): Promise<void> {
-    this.lastCode = code;
-    return Promise.resolve();
-  }
-}
 
 describe('Admin (e2e)', () => {
   let app: INestApplication<App>;
@@ -21,29 +12,24 @@ describe('Admin (e2e)', () => {
   let userToken: string;
   let pendingProId: string;
   let pendingUserId: string;
-  const adminPhone = '+905550009999';
-  const applicantPhone = '+905009990012';
-  const sms = new CapturingSmsSender();
+  const adminSub = 'demo-admin';
+  const applicantSub = 'test-kullanici-12';
 
-  const login = async (phone: string) => {
-    await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/request')
-      .send({ phone })
+  const login = async (sub: string) => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/auth/social')
+      .send({
+        provider: 'GOOGLE',
+        idToken: JSON.stringify({ sub, email: `${sub}@test.iste` }),
+      })
       .expect(200);
-    const verify = await request(app.getHttpServer())
-      .post('/api/v1/auth/otp/verify')
-      .send({ phone, code: sms.lastCode })
-      .expect(200);
-    return (verify.body as { accessToken: string }).accessToken;
+    return (res.body as { accessToken: string }).accessToken;
   };
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    })
-      .overrideProvider(SmsSender)
-      .useValue(sms)
-      .compile();
+    }).compile();
 
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api/v1');
@@ -53,9 +39,9 @@ describe('Admin (e2e)', () => {
     await app.init();
     prisma = app.get(PrismaService);
 
-    await prisma.user.deleteMany({ where: { phone: applicantPhone } });
-    adminToken = await login(adminPhone);
-    userToken = await login(applicantPhone);
+    await prisma.user.deleteMany({ where: { providerSub: applicantSub } });
+    adminToken = await login(adminSub);
+    userToken = await login(applicantSub);
 
     // Başvuran kullanıcı vitrin kurup doğrulamaya gönderir.
     const category = await prisma.category.findUniqueOrThrow({
@@ -86,14 +72,14 @@ describe('Admin (e2e)', () => {
       .expect(200);
 
     const profile = await prisma.proProfile.findFirstOrThrow({
-      where: { user: { phone: applicantPhone } },
+      where: { user: { providerSub: applicantSub } },
     });
     pendingProId = profile.id;
     pendingUserId = profile.userId;
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { phone: applicantPhone } });
+    await prisma.user.deleteMany({ where: { providerSub: applicantSub } });
     await app.close();
   });
 
