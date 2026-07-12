@@ -86,6 +86,14 @@ export class AdminService {
       where: { id: proProfileId },
       data: {
         verificationStatus: approve ? 'VERIFIED' : 'REJECTED',
+        // İncelemedeki belgeler de aynı kararla sonuçlanır — mobil
+        // paneldeki "n belge incelemede" sayacı asılı kalmasın.
+        documents: {
+          updateMany: {
+            where: { status: 'IN_REVIEW' },
+            data: { status: approve ? 'APPROVED' : 'REJECTED' },
+          },
+        },
         isPublished: approve,
       },
       select: { id: true, verificationStatus: true, isPublished: true },
