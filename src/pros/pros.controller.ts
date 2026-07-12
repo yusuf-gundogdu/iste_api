@@ -19,7 +19,9 @@ import {
   Matches,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { CurrentUser, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { JwtPayload } from '../auth/auth.service';
 import { ProsService } from './pros.service';
@@ -54,6 +56,115 @@ class CreatePayoutDto {
   @IsNumber()
   @Min(1)
   amount: number;
+}
+
+class UploadDocumentDto {
+  @IsString()
+  docType: string;
+
+  @Matches(/^\/uploads\/[\w.-]+$/)
+  url: string;
+}
+
+class CreateProServiceDto {
+  @IsString()
+  @MaxLength(80)
+  title: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  mode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  priceType?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  priceAmount?: number;
+}
+
+class UpdateProServiceDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  mode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  priceType?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  priceAmount?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+class AddRegionDto {
+  @IsString()
+  @MaxLength(60)
+  name: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  approxKm?: number;
+}
+
+class MaxDistanceDto {
+  @IsNumber()
+  @Min(1)
+  maxDistanceKm: number;
+}
+
+class WorkingHourDto {
+  @IsNumber()
+  @Min(1)
+  dayOfWeek: number;
+
+  @IsBoolean()
+  isOpen: boolean;
+
+  @IsString()
+  opensAt: string;
+
+  @IsString()
+  closesAt: string;
+}
+
+class SetWorkingHoursDto {
+  @ValidateNested({ each: true })
+  @Type(() => WorkingHourDto)
+  hours: WorkingHourDto[];
+}
+
+class PatchProfileDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(600)
+  bio?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  priceNote?: string;
+
+  @IsOptional()
+  @Matches(/^\/uploads\/[\w.-]+$/)
+  coverUrl?: string;
 }
 
 @Controller('pros')
@@ -115,6 +226,102 @@ export class ProsController {
     @Body() dto: CreatePayoutDto,
   ) {
     return this.pros.createPayout(user.sub, dto.amount);
+  }
+
+  // ── Doğrulama belgeleri (prototip verification) ──
+  @UseGuards(JwtAuthGuard)
+  @Get('me/documents')
+  myDocuments(@CurrentUser() user: JwtPayload) {
+    return this.pros.myDocuments(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('me/documents')
+  uploadDocument(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: UploadDocumentDto,
+  ) {
+    return this.pros.uploadDocument(user.sub, dto.docType, dto.url);
+  }
+
+  // ── Hizmetlerim & fiyatlar (prototip proServices) ──
+  @UseGuards(JwtAuthGuard)
+  @Get('me/services')
+  myServices(@CurrentUser() user: JwtPayload) {
+    return this.pros.myServices(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('me/services')
+  createService(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: CreateProServiceDto,
+  ) {
+    return this.pros.createService(user.sub, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('me/services/:id')
+  updateService(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateProServiceDto,
+  ) {
+    return this.pros.updateService(user.sub, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('me/services/:id')
+  deleteService(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.pros.deleteService(user.sub, id);
+  }
+
+  // ── Hizmet bölgelerim (prototip proRegions) ──
+  @UseGuards(JwtAuthGuard)
+  @Get('me/regions')
+  myRegions(@CurrentUser() user: JwtPayload) {
+    return this.pros.myRegions(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('me/regions')
+  addRegion(@CurrentUser() user: JwtPayload, @Body() dto: AddRegionDto) {
+    return this.pros.addRegion(user.sub, dto.name, dto.approxKm);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('me/regions/:id')
+  removeRegion(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.pros.removeRegion(user.sub, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('me/max-distance')
+  setMaxDistance(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: MaxDistanceDto,
+  ) {
+    return this.pros.setMaxDistance(user.sub, dto.maxDistanceKm);
+  }
+
+  // ── Çalışma saatleri (prototip availability) ──
+  @UseGuards(JwtAuthGuard)
+  @Put('me/working-hours')
+  setWorkingHours(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: SetWorkingHoursDto,
+  ) {
+    return this.pros.setWorkingHours(user.sub, dto.hours);
+  }
+
+  // ── Profili düzenle (prototip editProfile) ──
+  @UseGuards(JwtAuthGuard)
+  @Put('me/profile')
+  patchProfile(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: PatchProfileDto,
+  ) {
+    return this.pros.patchProfile(user.sub, dto);
   }
 
   @UseGuards(JwtAuthGuard)

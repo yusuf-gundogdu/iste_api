@@ -256,9 +256,25 @@ export class PaymentsService {
     return this.serialize(paymentId);
   }
 
-  /** Müşteri iade talebi girer (dispute engine yok — yalnız iz). */
+  /** Müşteri iade/iptal talebi girer (dispute engine yok — yalnız iz).
+   *  Ödeme henüz alınmadıysa (REQUESTED) talep doğrudan iptale çevrilir. */
   async requestRefund(customerId: string, paymentId: string, note?: string) {
     const payment = await this.byIdForUser(paymentId, customerId);
+
+    if (payment.status === 'REQUESTED') {
+      if (payment.conversation.customerId !== customerId) {
+        throw new ForbiddenException('İptali yalnız müşteri yapabilir');
+      }
+      await this.prisma.payment.update({
+        where: { id: paymentId },
+        data: {
+          status: 'CANCELLED',
+          events: { create: { status: 'CANCELLED', note } },
+        },
+      });
+      return this.serialize(paymentId, customerId);
+    }
+
     if (payment.paidByUserId !== customerId) {
       throw new ForbiddenException('İade talebini yalnız ödeyen müşteri girer');
     }
@@ -300,6 +316,7 @@ export class PaymentsService {
         },
         conversation: {
           select: {
+            customer: { select: { firstName: true, lastName: true } },
             proProfile: {
               select: {
                 id: true,
@@ -354,6 +371,7 @@ export class PaymentsService {
         },
         conversation: {
           select: {
+            customer: { select: { firstName: true, lastName: true } },
             proProfile: {
               select: {
                 id: true,
@@ -388,6 +406,7 @@ export class PaymentsService {
         address: string | null;
       };
       conversation: {
+        customer: { firstName: string | null; lastName: string | null };
         proProfile: {
           id: string;
           mainCategory: { name: string };
@@ -419,6 +438,14 @@ export class PaymentsService {
         ]
           .filter(Boolean)
           .join(' ') || 'Usta',
+      customerName:
+        [
+          payment.conversation.customer.firstName,
+          payment.conversation.customer.lastName?.[0],
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || 'Müşteri',
       isRequester: userId ? payment.requestedByUserId === userId : undefined,
       createdAt: payment.createdAt,
       timeline: payment.events.map((e) => ({

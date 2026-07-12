@@ -28,6 +28,15 @@ interface DiscoverRow {
   openToday: boolean;
   ratingAvg: number | null;
   reviewCount: number;
+  serviceMode: string;
+  emergency: string;
+  verifiedReviewCount: number;
+  hasGallery: boolean;
+  openNow: boolean;
+  openTomorrow: boolean;
+  worksWeekend: boolean;
+  worksEvening: boolean;
+  responseMinutes: number | null;
 }
 
 const profileInclude = {
@@ -78,7 +87,43 @@ export class ProsService {
         (SELECT ROUND(AVG(r.rating)::numeric, 1) FROM reviews r
           WHERE r."proProfileId" = p.id)::float AS "ratingAvg",
         (SELECT COUNT(*) FROM reviews r
-          WHERE r."proProfileId" = p.id)::int AS "reviewCount"
+          WHERE r."proProfileId" = p.id)::int AS "reviewCount",
+        p."serviceMode"::text AS "serviceMode",
+        p.emergency,
+        (SELECT COUNT(*) FROM reviews r
+          WHERE r."proProfileId" = p.id AND r."isVerified")::int
+          AS "verifiedReviewCount",
+        EXISTS(SELECT 1 FROM pro_gallery_images g
+          WHERE g."proProfileId" = p.id) AS "hasGallery",
+        EXISTS(SELECT 1 FROM working_hours w
+          WHERE w."proProfileId" = p.id AND w."dayOfWeek" = ${isoDow}
+            AND w."isOpen"
+            AND w."opensAt" <= to_char(NOW(), 'HH24:MI')
+            AND w."closesAt" >= to_char(NOW(), 'HH24:MI')) AS "openNow",
+        EXISTS(SELECT 1 FROM working_hours w
+          WHERE w."proProfileId" = p.id
+            AND w."dayOfWeek" = ${(isoDow % 7) + 1}
+            AND w."isOpen") AS "openTomorrow",
+        EXISTS(SELECT 1 FROM working_hours w
+          WHERE w."proProfileId" = p.id AND w."dayOfWeek" IN (6, 7)
+            AND w."isOpen") AS "worksWeekend",
+        EXISTS(SELECT 1 FROM working_hours w
+          WHERE w."proProfileId" = p.id AND w."isOpen"
+            AND w."closesAt" >= '19:00') AS "worksEvening",
+        (SELECT ROUND(AVG(t.diff) / 60)::int FROM (
+          SELECT EXTRACT(EPOCH FROM (m."createdAt" - LAG(m."createdAt")
+                   OVER (PARTITION BY m."conversationId"
+                         ORDER BY m."createdAt"))) AS diff,
+                 m."senderId",
+                 LAG(m."senderId") OVER (PARTITION BY m."conversationId"
+                                         ORDER BY m."createdAt") AS prev
+          FROM messages m
+          JOIN conversations cv ON cv.id = m."conversationId"
+          WHERE cv."proProfileId" = p.id
+        ) t
+        WHERE t."senderId" = p."userId"
+          AND t.prev IS DISTINCT FROM p."userId"
+          AND t.diff IS NOT NULL) AS "responseMinutes"
       FROM pro_profiles p
       JOIN users u ON u.id = p."userId"
       JOIN categories c ON c.id = p."mainCategoryId"
@@ -149,8 +194,20 @@ export class ProsService {
       this.averageResponseMinutes(id, profile.userId),
     ]);
 
+    // Herkese açık yanıt: iç alanlar (iban, bankName, userId, isOnline,
+    // yayın/doğrulama durumu) dışarı SIZMAZ.
+    const {
+      iban: _iban,
+      bankName: _bankName,
+      userId: _userId,
+      isOnline: _isOnline,
+      isPublished: _isPublished,
+      verificationStatus: _verificationStatus,
+      ...publicProfile
+    } = profile;
+
     return {
-      ...profile,
+      ...publicProfile,
       priceAmount:
         profile.priceAmount == null ? null : Number(profile.priceAmount),
       displayName:
@@ -207,6 +264,7 @@ export class ProsService {
         verificationStatus: true,
         isPublished: true,
         isOnline: true,
+        mainCategory: { select: { name: true } },
         user: {
           select: { firstName: true, lastName: true, avatarUrl: true },
         },
@@ -267,6 +325,7 @@ export class ProsService {
       this.prisma.review.aggregate({
         where: { proProfileId: profile.id },
         _avg: { rating: true },
+        _count: true,
       }),
       this.prisma.serviceRecord.findMany({
         where: {
@@ -316,12 +375,36 @@ export class ProsService {
         .join(' ')
         .trim() || 'Müşteri';
 
+    // Okunmamış müşteri mesajı sayısı (prototip 'Yeni mesajlar' metriği).
+    const unreadMessages = await this.prisma.message.count({
+      where: {
+        conversation: { proProfileId: profile.id },
+        senderId: { not: userId },
+        readAt: null,
+      },
+    });
+
+    // Belge durumu (prototip doğrulama kartı: '{n} belge incelemede').
+    const [docsInReview, docsMissing] = await Promise.all([
+      this.prisma.proDocument.count({
+        where: { proProfileId: profile.id, status: 'IN_REVIEW' },
+      }),
+      this.prisma.proDocument.count({
+        where: { proProfileId: profile.id, status: { in: ['MISSING', 'REJECTED'] } },
+      }),
+    ]);
+
     return {
       displayName:
         [profile.user.firstName, profile.user.lastName]
           .filter(Boolean)
           .join(' ') || 'Usta',
       avatarUrl: profile.user.avatarUrl,
+      categoryName: profile.mainCategory.name,
+      reviewCount: ratingAgg._count,
+      unreadMessages,
+      docsInReview,
+      docsMissing,
       isOnline: profile.isOnline,
       verificationStatus: profile.verificationStatus,
       isPublished: profile.isPublished,
@@ -452,6 +535,11 @@ export class ProsService {
             customer: {
               select: { firstName: true, lastName: true, avatarUrl: true },
             },
+            messages: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { body: true, type: true },
+            },
           },
         },
       },
@@ -472,6 +560,14 @@ export class ProsService {
       agreedAmount:
         record.agreedAmount == null ? null : Number(record.agreedAmount),
       hasReview: record.review != null,
+      // Prototip pro hizmet kartı: son mesaj + konum · saat satırı.
+      lastMessage: record.conversation.messages[0]?.type === 'TEXT'
+        ? record.conversation.messages[0].body
+        : record.conversation.messages[0] != null
+          ? 'Fotoğraf / konum'
+          : null,
+      address: record.address,
+      scheduledAt: record.scheduledAt,
       updatedAt: record.updatedAt,
     }));
   }
@@ -739,4 +835,270 @@ export class ProsService {
       select: { id: true, verificationStatus: true },
     });
   }
+
+  private async requireProfile(userId: string) {
+    const profile = await this.prisma.proProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!profile) {
+      throw new NotFoundException('Usta vitrini henüz kurulmamış');
+    }
+    return profile;
+  }
+
+  /** Doğrulama belgeleri (prototip verification). Eksikler varsayılan listeyle döner. */
+  async myDocuments(userId: string) {
+    const profile = await this.requireProfile(userId);
+    // Prototip verifDocs seti — her usta için sabit dört belge yuvası.
+    const slots: Array<{ docType: string; title: string }> = [
+      { docType: 'identity', title: 'Kimlik doğrulama' },
+      { docType: 'mastery', title: 'Ustalık belgesi' },
+      { docType: 'license', title: 'Doğalgaz yetki belgesi' },
+      { docType: 'address-tax', title: 'Adres & vergi bilgisi' },
+    ];
+    const existing = await this.prisma.proDocument.findMany({
+      where: { proProfileId: profile.id },
+    });
+    return slots.map((slot) => {
+      const doc = existing.find((d) => d.docType === slot.docType);
+      return {
+        docType: slot.docType,
+        title: slot.title,
+        status: doc?.status ?? 'MISSING',
+        url: doc?.url ?? null,
+        updatedAt: doc?.updatedAt ?? null,
+      };
+    });
+  }
+
+  /** Belge yükle → incelemeye alınır; profil de incelemeye düşer. */
+  async uploadDocument(userId: string, docType: string, url: string) {
+    const profile = await this.requireProfile(userId);
+    const valid = ['identity', 'mastery', 'license', 'address-tax'];
+    if (!valid.includes(docType)) {
+      throw new BadRequestException('Geçersiz belge türü');
+    }
+    const titles: Record<string, string> = {
+      identity: 'Kimlik doğrulama',
+      mastery: 'Ustalık belgesi',
+      license: 'Doğalgaz yetki belgesi',
+      'address-tax': 'Adres & vergi bilgisi',
+    };
+    const doc = await this.prisma.proDocument.upsert({
+      where: {
+        proProfileId_docType: { proProfileId: profile.id, docType },
+      },
+      update: { url, status: 'IN_REVIEW' },
+      create: {
+        proProfileId: profile.id,
+        docType,
+        title: titles[docType],
+        url,
+        status: 'IN_REVIEW',
+      },
+    });
+    return {
+      docType: doc.docType,
+      title: doc.title,
+      status: doc.status,
+      url: doc.url,
+      updatedAt: doc.updatedAt,
+    };
+  }
+
+  /** Hizmetlerim & fiyatlar (prototip proServices). */
+  async myServices(userId: string) {
+    const profile = await this.requireProfile(userId);
+    const services = await this.prisma.proService.findMany({
+      where: { proProfileId: profile.id },
+      orderBy: { sortOrder: 'asc' },
+    });
+    return services.map((service) => this.serializeService(service));
+  }
+
+  private serializeService(service: {
+    id: string;
+    title: string;
+    mode: string;
+    priceType: string;
+    priceAmount: unknown;
+    isActive: boolean;
+  }) {
+    return {
+      id: service.id,
+      title: service.title,
+      mode: service.mode,
+      priceType: service.priceType,
+      priceAmount:
+        service.priceAmount == null ? null : Number(service.priceAmount),
+      isActive: service.isActive,
+    };
+  }
+
+  async createService(
+    userId: string,
+    input: {
+      title: string;
+      mode?: string;
+      priceType?: string;
+      priceAmount?: number;
+    },
+  ) {
+    const profile = await this.requireProfile(userId);
+    const count = await this.prisma.proService.count({
+      where: { proProfileId: profile.id },
+    });
+    const service = await this.prisma.proService.create({
+      data: {
+        proProfileId: profile.id,
+        title: input.title,
+        mode: input.mode ?? 'Yerinde',
+        priceType: input.priceType ?? 'Fiyat konuşulur',
+        priceAmount: input.priceAmount,
+        sortOrder: count,
+      },
+    });
+    return this.serializeService(service);
+  }
+
+  async updateService(
+    userId: string,
+    serviceId: string,
+    input: {
+      title?: string;
+      mode?: string;
+      priceType?: string;
+      priceAmount?: number;
+      isActive?: boolean;
+    },
+  ) {
+    const profile = await this.requireProfile(userId);
+    const service = await this.prisma.proService.findUnique({
+      where: { id: serviceId },
+    });
+    if (!service || service.proProfileId !== profile.id) {
+      throw new NotFoundException('Hizmet bulunamadı');
+    }
+    const updated = await this.prisma.proService.update({
+      where: { id: serviceId },
+      data: input,
+    });
+    return this.serializeService(updated);
+  }
+
+  async deleteService(userId: string, serviceId: string) {
+    const profile = await this.requireProfile(userId);
+    const service = await this.prisma.proService.findUnique({
+      where: { id: serviceId },
+    });
+    if (!service || service.proProfileId !== profile.id) {
+      throw new NotFoundException('Hizmet bulunamadı');
+    }
+    await this.prisma.proService.delete({ where: { id: serviceId } });
+    return { deleted: true };
+  }
+
+  /** Hizmet bölgelerim (prototip proRegions): liste + ekle/sil + maks mesafe. */
+  async myRegions(userId: string) {
+    const profile = await this.prisma.proProfile.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        maxDistanceKm: true,
+        district: true,
+        regions: { select: { id: true, name: true, approxKm: true } },
+      },
+    });
+    if (!profile) {
+      throw new NotFoundException('Usta vitrini henüz kurulmamış');
+    }
+    return {
+      district: profile.district,
+      maxDistanceKm: profile.maxDistanceKm,
+      regions: profile.regions,
+    };
+  }
+
+  async addRegion(userId: string, name: string, approxKm?: number) {
+    const profile = await this.requireProfile(userId);
+    return this.prisma.proRegion.create({
+      data: { proProfileId: profile.id, name, approxKm },
+      select: { id: true, name: true, approxKm: true },
+    });
+  }
+
+  async removeRegion(userId: string, regionId: string) {
+    const profile = await this.requireProfile(userId);
+    const region = await this.prisma.proRegion.findUnique({
+      where: { id: regionId },
+    });
+    if (!region || region.proProfileId !== profile.id) {
+      throw new NotFoundException('Bölge bulunamadı');
+    }
+    await this.prisma.proRegion.delete({ where: { id: regionId } });
+    return { deleted: true };
+  }
+
+  async setMaxDistance(userId: string, maxDistanceKm: number) {
+    const profile = await this.requireProfile(userId);
+    await this.prisma.proProfile.update({
+      where: { id: profile.id },
+      data: { maxDistanceKm },
+    });
+    return { maxDistanceKm };
+  }
+
+  /** Çalışma saatlerini günceller (prototip availability). */
+  async setWorkingHours(
+    userId: string,
+    hours: Array<{
+      dayOfWeek: number;
+      isOpen: boolean;
+      opensAt: string;
+      closesAt: string;
+    }>,
+  ) {
+    const profile = await this.requireProfile(userId);
+    await this.prisma.$transaction(
+      hours.map((hour) =>
+        this.prisma.workingHour.upsert({
+          where: {
+            proProfileId_dayOfWeek: {
+              proProfileId: profile.id,
+              dayOfWeek: hour.dayOfWeek,
+            },
+          },
+          update: {
+            isOpen: hour.isOpen,
+            opensAt: hour.opensAt,
+            closesAt: hour.closesAt,
+          },
+          create: {
+            proProfileId: profile.id,
+            dayOfWeek: hour.dayOfWeek,
+            isOpen: hour.isOpen,
+            opensAt: hour.opensAt,
+            closesAt: hour.closesAt,
+          },
+        }),
+      ),
+    );
+    return { updated: hours.length };
+  }
+
+  /** Profili düzenle (prototip editProfile) — kısmi güncelleme. */
+  async patchProfile(
+    userId: string,
+    input: { bio?: string; priceNote?: string; coverUrl?: string },
+  ) {
+    const profile = await this.requireProfile(userId);
+    const updated = await this.prisma.proProfile.update({
+      where: { id: profile.id },
+      data: input,
+      select: { bio: true, priceNote: true, coverUrl: true },
+    });
+    return updated;
+  }
+
 }

@@ -79,4 +79,12 @@ export class NotificationsService {
     });
     return { ok: true };
   }
+
+  /** Prototip 'Temizle': kullanıcının tüm bildirimlerini siler. */
+  async clearAll(userId: string) {
+    const result = await this.prisma.notification.deleteMany({
+      where: { userId },
+    });
+    return { cleared: result.count };
+  }
 }

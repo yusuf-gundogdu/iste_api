@@ -84,6 +84,8 @@ model ProProfile {
   isOnline           Boolean            @default(true) // panel çevrimiçi/çevrimdışı toggle (prototip)
   bankName           String? // aktarım hesabı (prototip payoutReq)
   iban               String?
+  priceNote          String? // fiyat yaklaşımı notu (prototip editProfile)
+  maxDistanceKm      Int? // hizmet bölgesi maksimum mesafe (prototip proRegions)
   latitude           Float?
   longitude          Float?
   verificationStatus VerificationStatus @default(MISSING)
@@ -102,6 +104,8 @@ model ProProfile {
   reviews       Review[]
   favoritedBy   Favorite[]
   payouts       Payout[]
+  documents     ProDocument[]
+  services      ProService[]
 
   @@index([mainCategoryId])
   @@map("pro_profiles")
@@ -147,6 +151,7 @@ model ProRegion {
   id           String @id @default(uuid())
   proProfileId String
   name         String // semt/bölge adı
+  approxKm     Float? // merkeze yaklaşık uzaklık (prototip '~5 km')
 
   proProfile ProProfile @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
 
@@ -386,6 +391,41 @@ model Notification {
 
 // ─── Katalog ─────────────────────────────────────────────────────────────
 // Kategori → alt hizmet ağacı; gerekli kategorilerde marka uzmanlığı.
+
+/// Doğrulama belgesi (prototip verification/verifDocs).
+model ProDocument {
+  id           String   @id @default(uuid())
+  proProfileId String
+  docType      String // identity | mastery | license | address-tax
+  title        String // Kimlik doğrulama · Ustalık belgesi · …
+  url          String? // sunucu diski yolu
+  status       String   @default("MISSING") // MISSING | IN_REVIEW | APPROVED | REJECTED
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  proProfile ProProfile @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([proProfileId, docType])
+  @@map("pro_documents")
+}
+
+/// Hizmet & fiyat kartı (prototip proServices — aktif/pasif toggle'lı).
+model ProService {
+  id           String   @id @default(uuid())
+  proProfileId String
+  title        String
+  mode         String   @default("Yerinde") // Yerinde | Atölye
+  priceType    String   @default("Fiyat konuşulur") // Keşif ücreti | Sabit fiyat | Fiyat konuşulur
+  priceAmount  Decimal? @db.Decimal(10, 2)
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  proProfile ProProfile @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
+
+  @@index([proProfileId])
+  @@map("pro_services")
+}
 
 /// Banka aktarım talebi (prototip payouts/payoutReq).
 model Payout {

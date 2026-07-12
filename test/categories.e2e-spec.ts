@@ -5,6 +5,10 @@ import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 
 interface CategoryItem {
+  description: string;
+  mode: string;
+  subServiceNames: string[];
+  proCount: number;
   slug: string;
   name: string;
   requiresBrandModel: boolean;
@@ -38,6 +42,16 @@ describe('Categories (e2e)', () => {
     const body = res.body as CategoryItem[];
     expect(body.length).toBeGreaterThanOrEqual(10);
     expect(body.map((c) => c.slug)).toContain('elektrik');
+
+    // Kategoriler ekranı kart alanları (prototip cats): açıklama + mod +
+    // alt hizmet adları + usta sayısı.
+    const elektrik = body.find((c) => c.slug === 'elektrik')!;
+    expect(elektrik.description.length).toBeGreaterThan(10);
+    expect(['Yerinde', 'Atölye', 'Yerinde + Atölye']).toContain(
+      elektrik.mode,
+    );
+    expect(elektrik.subServiceNames).toContain('Priz / anahtar');
+    expect(typeof elektrik.proCount).toBe('number');
   });
 
   it('GET /categories/:slug alt hizmet ve markaları döner', async () => {

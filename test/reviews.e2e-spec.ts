@@ -94,6 +94,7 @@ describe('Reviews (e2e)', () => {
         punctuality: 4,
         workmanship: 5,
         body: 'Çok ilgiliydi, işini titiz yaptı.',
+        photoUrl: '/uploads/gallery-test-yorum.webp',
       })
       .expect(201);
 
@@ -109,6 +110,18 @@ describe('Reviews (e2e)', () => {
       .expect(400);
   });
 
+  it('uploads dışı fotoğraf yolu reddedilir', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/reviews')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({
+        conversationId,
+        rating: 5,
+        photoUrl: 'https://kotu.example/x.png',
+      })
+      .expect(400);
+  });
+
   it('usta yanıt verir; profil yorum motoru özet döner', async () => {
     const list = await request(app.getHttpServer())
       .get(`/api/v1/pros/${proProfileId}/reviews`)
@@ -120,6 +133,10 @@ describe('Reviews (e2e)', () => {
     expect(listBody.summary.total).toBe(1);
     expect(listBody.summary.average).toBe(5);
     expect(listBody.reviews[0].customerName).toBeTruthy();
+    // Prototip "Fotoğraflı" filtresi için fotoğraf yolu listede döner.
+    expect(
+      (listBody.reviews[0] as { photoUrl?: string }).photoUrl,
+    ).toBe('/uploads/gallery-test-yorum.webp');
 
     await request(app.getHttpServer())
       .post(`/api/v1/reviews/${listBody.reviews[0].id}/reply`)

@@ -50,6 +50,23 @@ describe('Public Pro Profile (e2e)', () => {
     expect(body.subServices.length).toBeGreaterThan(0);
     expect(body.workingHours.length).toBe(7);
     expect(typeof body.openToday).toBe('boolean');
+
+    // Prototip profil ekranı alanları: 3 istatistik kutusu + acil hizmet +
+    // hizmet bölgesi haritası.
+    const proto = res.body as {
+      emergency: string;
+      reviewCount: number;
+      verifiedReviewCount: number;
+      ratingAvg: number | null;
+      responseMinutes: number | null;
+      latitude: number | null;
+      longitude: number | null;
+    };
+    expect(['Var', 'Yok', 'Hafta içi']).toContain(proto.emergency);
+    expect(typeof proto.reviewCount).toBe('number');
+    expect(typeof proto.verifiedReviewCount).toBe('number');
+    expect(proto.latitude).not.toBeNull();
+    expect(proto.longitude).not.toBeNull();
   });
 
   it('doğrulanmamış profil 404 döner', async () => {

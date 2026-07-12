@@ -56,6 +56,7 @@ export class AccountService {
         ]
           .filter(Boolean)
           .join(' ') || 'Usta',
+      proAvatarUrl: record.conversation.proProfile.user.avatarUrl,
       categoryName: record.conversation.proProfile.mainCategory.name,
       title: record.title,
       status: record.status,
@@ -93,6 +94,25 @@ export class AccountService {
     return { favorited: false };
   }
 
+  /** Kadıköy merkezine kuş uçuşu km (mobil varsayılan keşif merkezi). */
+  private distanceKm(lat: number | null, lng: number | null): number {
+    if (lat == null || lng == null) return 0;
+    const centerLat = 40.9903;
+    const centerLng = 29.0264;
+    const rad = Math.PI / 180;
+    const dLat = (lat - centerLat) * rad;
+    const dLng = (lng - centerLng) * rad;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(centerLat * rad) *
+        Math.cos(lat * rad) *
+        Math.sin(dLng / 2) ** 2;
+    return (
+      Math.round(6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) /
+      10
+    );
+  }
+
   async listFavorites(userId: string) {
     const favorites = await this.prisma.favorite.findMany({
       where: { userId },
@@ -104,11 +124,13 @@ export class AccountService {
             user: {
               select: { firstName: true, lastName: true, avatarUrl: true },
             },
+            workingHours: { select: { dayOfWeek: true, isOpen: true } },
             _count: { select: { reviews: true } },
           },
         },
       },
     });
+    const isoDow = ((new Date().getDay() + 6) % 7) + 1;
 
     const ids = favorites.map((f) => f.proProfileId);
     const ratings = ids.length
@@ -136,8 +158,10 @@ export class AccountService {
         district: pro.district,
         latitude: pro.latitude ?? 0,
         longitude: pro.longitude ?? 0,
-        distanceKm: 0,
-        openToday: false,
+        distanceKm: this.distanceKm(pro.latitude, pro.longitude),
+        openToday:
+          pro.workingHours.find((h) => h.dayOfWeek === isoDow)?.isOpen ??
+          false,
         priceApproach: pro.priceApproach,
         priceAmount: pro.priceAmount == null ? null : Number(pro.priceAmount),
         yearsExperience: pro.yearsExperience,

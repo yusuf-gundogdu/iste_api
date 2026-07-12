@@ -227,6 +227,13 @@ describe('Payments (e2e) — escrow akışı', () => {
       .expect(200);
     expect((mine.body as unknown[]).length).toBeGreaterThanOrEqual(2);
 
+    // Ödeme özeti ekranı alanları (prototip pay): usta adı + kategori +
+    // usta profil id'si her kayıtta döner.
+    const first = (mine.body as Array<Record<string, unknown>>)[0];
+    expect(typeof first.proName).toBe('string');
+    expect(typeof first.categoryName).toBe('string');
+    expect(typeof first.proProfileId).toBe('string');
+
     const pros = await request(app.getHttpServer())
       .get('/api/v1/payments/mine')
       .set('Authorization', `Bearer ${proToken}`)
