@@ -45,7 +45,7 @@ describe('Notifications (e2e)', () => {
       where: {
         verificationStatus: 'VERIFIED',
         isPublished: true,
-        user: { providerSub: 'demo-usta-11' },
+        user: { providerSub: 'demo-hakan-celik' },
       },
       include: { user: true },
     });

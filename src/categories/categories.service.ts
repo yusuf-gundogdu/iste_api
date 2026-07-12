@@ -13,6 +13,8 @@ export class CategoriesService {
         slug: true,
         name: true,
         icon: true,
+        description: true,
+        mode: true,
         requiresBrandModel: true,
       },
     });

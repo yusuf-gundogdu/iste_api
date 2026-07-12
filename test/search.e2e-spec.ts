@@ -41,21 +41,19 @@ describe('Search (e2e)', () => {
 
     const body = res.body as SearchResponse;
     expect(
-      body.relatedServices.some((r) => r.categorySlug === 'elektrikci'),
+      body.relatedServices.some((r) => r.categorySlug === 'elektrik'),
     ).toBe(true);
-    expect(body.pros.length).toBeGreaterThanOrEqual(2);
-    expect(body.pros.every((p) => p.categorySlug === 'elektrikci')).toBe(true);
+    expect(body.pros.length).toBeGreaterThanOrEqual(1);
+    expect(body.pros.every((p) => p.categorySlug === 'elektrik')).toBe(true);
   });
 
-  it('alt hizmet adıyla arama usta bulur (çamaşır makinesi)', async () => {
+  it('alt hizmet adıyla arama usta bulur (petek temizliği)', async () => {
     const res = await request(app.getHttpServer())
-      .get(`${base}&q=${encodeURIComponent('çamaşır makinesi')}`)
+      .get(`${base}&q=${encodeURIComponent('petek temizliği')}`)
       .expect(200);
 
     const body = res.body as SearchResponse;
-    expect(body.pros.some((p) => p.categorySlug === 'beyaz-esya-servisi')).toBe(
-      true,
-    );
+    expect(body.pros.some((p) => p.categorySlug === 'kombi')).toBe(true);
     expect(body.relatedServices.some((r) => r.type === 'subService')).toBe(
       true,
     );

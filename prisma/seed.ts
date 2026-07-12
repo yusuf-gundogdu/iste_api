@@ -6,156 +6,185 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
 });
 
+/**
+ * TÜM veriler prototipten AYNEN alınmıştır
+ * (referans/Tasarım projesinde işbirliği/İŞTE Sprint 2.dc.html —
+ * CATS + CAT_INFO + catDesc + brands + PROS).
+ */
 interface CategorySeed {
   slug: string;
   name: string;
   icon: string;
-  requiresBrandModel?: boolean;
+  description: string;
+  mode: string;
   subServices: string[];
   brands?: string[];
 }
 
+const FALLBACK_DESC = 'Bu kategorideki ustaları keşfet.';
+
 const categories: CategorySeed[] = [
   {
-    slug: 'elektrikci',
-    name: 'Elektrikçi',
+    slug: 'elektrik',
+    name: 'Elektrik',
     icon: 'bolt',
-    subServices: [
-      'Priz / anahtar montajı',
-      'Avize / aydınlatma montajı',
-      'Sigorta kutusu / pano',
-      'Elektrik arıza tespiti',
-      'Kablolama / tesisat çekimi',
-    ],
+    description:
+      'Avize montajı, priz arızası, sigorta sorunları ve genel elektrik işleri.',
+    mode: 'Yerinde',
+    subServices: ['Priz / anahtar', 'Aydınlatma', 'Pano', 'Arıza'],
+    brands: ['Schneider', 'Legrand', 'Viko', 'ABB'],
   },
   {
-    slug: 'tesisatci',
-    name: 'Tesisatçı',
+    slug: 'su-tesisati',
+    name: 'Su Tesisatı',
     icon: 'plumbing',
-    subServices: [
-      'Musluk / batarya değişimi',
-      'Su kaçağı tespiti ve onarımı',
-      'Gider açma',
-      'Klozet / rezervuar tamiri',
-      'Petek / kombi tesisatı',
-    ],
+    description: 'Musluk, rezervuar, tıkanıklık, kaçak ve montaj işleri.',
+    mode: 'Yerinde',
+    subServices: ['Tıkanıklık', 'Musluk', 'Su kaçağı'],
+    brands: ['ECA', 'Artema', 'Grohe'],
   },
   {
-    slug: 'beyaz-esya-servisi',
-    name: 'Beyaz Eşya Servisi',
-    icon: 'kitchen',
-    requiresBrandModel: true,
-    subServices: [
-      'Çamaşır makinesi tamiri',
-      'Bulaşık makinesi tamiri',
-      'Buzdolabı tamiri',
-      'Fırın / ocak tamiri',
-      'Kurutma makinesi tamiri',
-    ],
-    brands: [
-      'Arçelik',
-      'Beko',
-      'Bosch',
-      'Siemens',
-      'Vestel',
-      'Samsung',
-      'LG',
-      'Profilo',
-      'Grundig',
-    ],
-  },
-  {
-    slug: 'klima-servisi',
-    name: 'Klima Servisi',
-    icon: 'ac_unit',
-    requiresBrandModel: true,
-    subServices: [
-      'Klima montajı',
-      'Klima bakımı / gaz dolumu',
-      'Klima arıza tamiri',
-      'Klima sökme / taşıma',
-    ],
-    brands: [
-      'Daikin',
-      'Mitsubishi',
-      'Arçelik',
-      'Vestel',
-      'Samsung',
-      'LG',
-      'Baymak',
-    ],
-  },
-  {
-    slug: 'boyaci',
-    name: 'Boyacı',
+    slug: 'boya',
+    name: 'Boya',
     icon: 'format_paint',
-    subServices: [
-      'İç cephe boya',
-      'Dış cephe boya',
-      'Alçı / sıva',
-      'Duvar kağıdı uygulama',
-    ],
+    description: 'İç cephe, dekoratif boya, alçı ve tavan işleri.',
+    mode: 'Yerinde',
+    subServices: ['İç cephe', 'Dekoratif', 'Tavan'],
+    brands: ['Filli Boya', 'Marshall', 'Dyo'],
   },
   {
-    slug: 'marangoz',
-    name: 'Marangoz',
-    icon: 'carpenter',
-    subServices: [
-      'Mobilya montajı',
-      'Mobilya tamiri',
-      'Kapı / pencere tamiri',
-      'Dolap / raf yapımı',
-    ],
+    slug: 'klima',
+    name: 'Klima',
+    icon: 'ac_unit',
+    description: 'Klima montaj, gaz dolumu, bakım ve arıza işlemleri.',
+    mode: 'Yerinde + Atölye',
+    subServices: ['Montaj', 'Gaz dolumu', 'Bakım'],
+    brands: ['Daikin', 'Mitsubishi', 'Arçelik', 'Vestel'],
   },
   {
-    slug: 'kombi-servisi',
-    name: 'Kombi Servisi',
+    slug: 'kombi',
+    name: 'Kombi',
     icon: 'hvac',
-    requiresBrandModel: true,
-    subServices: ['Kombi bakımı', 'Kombi arıza tamiri', 'Kombi montajı'],
-    brands: ['Vaillant', 'Baymak', 'Demirdöküm', 'Bosch', 'Buderus', 'ECA'],
+    description: 'Kombi arıza, bakım, petek temizliği ve gaz işlemleri.',
+    mode: 'Yerinde',
+    subServices: ['Arıza', 'Bakım', 'Petek temizliği'],
+    brands: ['Vaillant', 'Bosch', 'DemirDöküm', 'Baymak'],
   },
   {
     slug: 'temizlik',
     name: 'Temizlik',
     icon: 'cleaning_services',
-    subServices: [
-      'Ev temizliği',
-      'Ofis temizliği',
-      'İnşaat sonrası temizlik',
-      'Koltuk / halı yıkama',
-    ],
+    description: FALLBACK_DESC,
+    mode: 'Yerinde',
+    subServices: ['Ev', 'Ofis', 'İnşaat sonrası'],
   },
   {
-    slug: 'nakliyat',
-    name: 'Nakliyat',
-    icon: 'local_shipping',
-    subServices: ['Evden eve nakliyat', 'Parça eşya taşıma', 'Ofis taşıma'],
+    slug: 'telefon',
+    name: 'Telefon',
+    icon: 'smartphone',
+    description:
+      'Ekran, batarya, soket, hoparlör ve cihaz teşhis işlemleri.',
+    mode: 'Atölye',
+    subServices: ['Ekran', 'Batarya', 'Şarj soketi'],
+    brands: ['Apple', 'Samsung', 'Xiaomi'],
+  },
+  {
+    slug: 'bilgisayar',
+    name: 'Bilgisayar',
+    icon: 'computer',
+    description: FALLBACK_DESC,
+    mode: 'Yerinde + Atölye',
+    subServices: ['Format', 'Donanım', 'Virüs'],
+  },
+  {
+    slug: 'beyaz-esya',
+    name: 'Beyaz Eşya',
+    icon: 'kitchen',
+    description: FALLBACK_DESC,
+    mode: 'Yerinde',
+    subServices: ['Buzdolabı', 'Çamaşır m.', 'Bulaşık m.'],
+  },
+  {
+    slug: 'marangoz',
+    name: 'Marangoz',
+    icon: 'carpenter',
+    description: FALLBACK_DESC,
+    mode: 'Yerinde + Atölye',
+    subServices: ['Montaj', 'Tamir', 'Ölçülü mobilya'],
   },
   {
     slug: 'cilingir',
     name: 'Çilingir',
     icon: 'key',
-    subServices: ['Kapı açma', 'Kilit değişimi', 'Çelik kapı tamiri'],
+    description: FALLBACK_DESC,
+    mode: 'Yerinde',
+    subServices: ['Kapı açma', 'Kilit değişimi'],
+  },
+  {
+    slug: 'nakliye',
+    name: 'Nakliye',
+    icon: 'local_shipping',
+    description: FALLBACK_DESC,
+    mode: 'Yerinde',
+    subServices: ['Evden eve', 'Ofis', 'Parça eşya'],
   },
 ];
 
+/** Prototip PROS dizisi — isimler/kategoriler/mesafeler aynen. */
+interface DemoPro {
+  sub: string;
+  firstName: string;
+  lastName: string;
+  categorySlug: string;
+  district: string;
+  lat: number;
+  lng: number;
+  bio: string;
+  price: 'NEGOTIABLE' | 'STARTING' | 'FIXED';
+  amount?: number;
+}
+
+// Konumlar Kadıköy merkezine (40.9903, 29.0264) prototipteki km
+// mesafelerini verecek şekilde yerleştirildi.
+const demoPros: DemoPro[] = [
+  { sub: 'demo-mehmet-kaya', firstName: 'Mehmet', lastName: 'Kaya', categorySlug: 'elektrik', district: 'Kadıköy', lat: 40.9903, lng: 29.0407, bio: 'Elektrik ustası. Avize montajı, priz arızası ve pano işleri.', price: 'NEGOTIABLE' },
+  { sub: 'demo-ayse-yildiz', firstName: 'Ayşe', lastName: 'Yıldız', categorySlug: 'su-tesisati', district: 'Moda', lat: 40.9714, lng: 29.0264, bio: 'Su tesisatı: tıkanıklık, musluk ve su kaçağı işleri.', price: 'NEGOTIABLE' },
+  { sub: 'demo-emre-koc', firstName: 'Emre', lastName: 'Koç', categorySlug: 'klima', district: 'Osmanağa', lat: 40.9903, lng: 29.0169, bio: 'Klima montaj, gaz dolumu ve bakım. Yerinde + atölye.', price: 'STARTING', amount: 600 },
+  { sub: 'demo-selin-demir', firstName: 'Selin', lastName: 'Demir', categorySlug: 'boya', district: 'Feneryolu', lat: 40.9736, lng: 29.0603, bio: 'İç cephe, dekoratif boya ve tavan işleri.', price: 'NEGOTIABLE' },
+  { sub: 'demo-hakan-celik', firstName: 'Hakan', lastName: 'Çelik', categorySlug: 'telefon', district: 'Rasimpaşa', lat: 41.0016, lng: 29.0326, bio: 'Telefon tamiri: ekran, batarya, şarj soketi. Atölye.', price: 'STARTING', amount: 1200 },
+  { sub: 'demo-nadir-baris', firstName: 'Nadir', lastName: 'Barış', categorySlug: 'kombi', district: 'Acıbadem', lat: 41.0093, lng: 29.0450, bio: 'Kombi arıza, bakım ve petek temizliği yapıyorum. Tüm marka kombilerde yetkili servis deneyimim var.', price: 'FIXED', amount: 150 },
+  // Prototipte "Tadilat" kategorisiz usta (Yağmur Aslan, yeni/yorumsuz) —
+  // CATS'te Tadilat olmadığı için en yakın kategori Marangoz'a bağlandı.
+  { sub: 'demo-yagmur-aslan', firstName: 'Yağmur', lastName: 'Aslan', categorySlug: 'marangoz', district: 'Caferağa', lat: 40.9995, lng: 29.0450, bio: 'Tadilat ve montaj işleri.', price: 'NEGOTIABLE' },
+  { sub: 'demo-deniz-aksoy', firstName: 'Deniz', lastName: 'Aksoy', categorySlug: 'kombi', district: 'Koşuyolu', lat: 41.0080, lng: 29.0100, bio: 'Kombi bakım ve arıza.', price: 'NEGOTIABLE' },
+];
+
 async function main() {
+  // Prototip dışı eski kategoriler temizlenir (slug uyuşmazlığı).
+  const validSlugs = categories.map((c) => c.slug);
+  await prisma.category.deleteMany({
+    where: { slug: { notIn: validSlugs } },
+  });
+
   for (const [index, seed] of categories.entries()) {
     const category = await prisma.category.upsert({
       where: { slug: seed.slug },
       update: {
         name: seed.name,
         icon: seed.icon,
+        description: seed.description,
+        mode: seed.mode,
         sortOrder: index,
-        requiresBrandModel: seed.requiresBrandModel ?? false,
+        requiresBrandModel: (seed.brands?.length ?? 0) > 0,
       },
       create: {
         slug: seed.slug,
         name: seed.name,
         icon: seed.icon,
+        description: seed.description,
+        mode: seed.mode,
         sortOrder: index,
-        requiresBrandModel: seed.requiresBrandModel ?? false,
+        requiresBrandModel: (seed.brands?.length ?? 0) > 0,
       },
     });
 
@@ -164,14 +193,16 @@ async function main() {
       await prisma.subService.upsert({
         where: { slug },
         update: { name, sortOrder: subIndex },
-        create: {
-          slug,
-          name,
-          sortOrder: subIndex,
-          categoryId: category.id,
-        },
+        create: { slug, name, sortOrder: subIndex, categoryId: category.id },
       });
     }
+    // Fazla alt hizmetler temizlenir.
+    await prisma.subService.deleteMany({
+      where: {
+        categoryId: category.id,
+        sortOrder: { gte: seed.subServices.length },
+      },
+    });
 
     for (const name of seed.brands ?? []) {
       await prisma.brand.upsert({
@@ -180,11 +211,17 @@ async function main() {
         create: { categoryId: category.id, name },
       });
     }
+    await prisma.brand.deleteMany({
+      where: {
+        categoryId: category.id,
+        name: { notIn: seed.brands ?? [] },
+      },
+    });
   }
 
   await seedDemoPros();
 
-  // Yönetici hesabı (panel girişi Google ile; dev'de DevVerifier).
+  // Yönetici hesabı (Google ile giriş; dev'de DevVerifier).
   await prisma.user.upsert({
     where: {
       provider_providerSub: { provider: 'GOOGLE', providerSub: 'demo-admin' },
@@ -208,36 +245,6 @@ async function main() {
   };
   console.log('Seed tamam:', counts);
 }
-
-interface DemoPro {
-  sub: string;
-  firstName: string;
-  lastName: string;
-  categorySlug: string;
-  district: string;
-  lat: number;
-  lng: number;
-  years: number;
-  price: 'NEGOTIABLE' | 'STARTING' | 'FIXED';
-  amount?: number;
-  bio: string;
-}
-
-// Kadıköy merkezli demo ustalar — geliştirme/harita testi için.
-const demoPros: DemoPro[] = [
-  { sub: 'demo-usta-1', firstName: 'Mehmet', lastName: 'Yılmaz', categorySlug: 'elektrikci', district: 'Kadıköy', lat: 40.9903, lng: 29.0301, years: 12, price: 'NEGOTIABLE', bio: '12 yıldır elektrik tesisatı ve arıza işleri yapıyorum.' },
-  { sub: 'demo-usta-2', firstName: 'Ali', lastName: 'Demir', categorySlug: 'tesisatci', district: 'Moda', lat: 40.9825, lng: 29.0253, years: 8, price: 'STARTING', amount: 500, bio: 'Su kaçağı ve tesisat işlerinde uzmanım.' },
-  { sub: 'demo-usta-3', firstName: 'Hasan', lastName: 'Kaya', categorySlug: 'beyaz-esya-servisi', district: 'Fenerbahçe', lat: 40.9744, lng: 29.0459, years: 15, price: 'STARTING', amount: 750, bio: 'Tüm markalarda beyaz eşya tamiri, aynı gün servis.' },
-  { sub: 'demo-usta-4', firstName: 'Ayşe', lastName: 'Şahin', categorySlug: 'temizlik', district: 'Koşuyolu', lat: 41.0035, lng: 29.0397, years: 6, price: 'FIXED', amount: 1200, bio: 'Ekibimle ev ve ofis temizliği yapıyoruz.' },
-  { sub: 'demo-usta-5', firstName: 'Mustafa', lastName: 'Çelik', categorySlug: 'klima-servisi', district: 'Acıbadem', lat: 41.0021, lng: 29.0451, years: 10, price: 'STARTING', amount: 600, bio: 'Klima montaj, bakım ve gaz dolumu.' },
-  { sub: 'demo-usta-6', firstName: 'İbrahim', lastName: 'Arslan', categorySlug: 'boyaci', district: 'Göztepe', lat: 40.9705, lng: 29.0632, years: 20, price: 'NEGOTIABLE', bio: 'İç-dış cephe boya, alçı ve sıva işleri.' },
-  { sub: 'demo-usta-7', firstName: 'Osman', lastName: 'Koç', categorySlug: 'marangoz', district: 'Erenköy', lat: 40.9726, lng: 29.0778, years: 18, price: 'NEGOTIABLE', bio: 'Mobilya montaj/tamir ve özel dolap imalatı.' },
-  { sub: 'demo-usta-8', firstName: 'Emre', lastName: 'Aydın', categorySlug: 'kombi-servisi', district: 'Üsküdar', lat: 41.0227, lng: 29.0152, years: 9, price: 'STARTING', amount: 800, bio: 'Kombi bakım ve arıza — tüm markalar.' },
-  { sub: 'demo-usta-9', firstName: 'Fatma', lastName: 'Öztürk', categorySlug: 'temizlik', district: 'Ataşehir', lat: 40.9846, lng: 29.1064, years: 5, price: 'FIXED', amount: 1000, bio: 'Detaylı ev temizliği ve boş ev temizliği.' },
-  { sub: 'demo-usta-10', firstName: 'Kemal', lastName: 'Güneş', categorySlug: 'elektrikci', district: 'Bostancı', lat: 40.9524, lng: 29.0955, years: 7, price: 'NEGOTIABLE', bio: 'Avize montajı, priz ve pano işleri.' },
-  { sub: 'demo-usta-11', firstName: 'Serkan', lastName: 'Polat', categorySlug: 'cilingir', district: 'Kadıköy', lat: 40.9889, lng: 29.0367, years: 11, price: 'FIXED', amount: 400, bio: '7/24 kapı açma ve kilit değişimi.' },
-  { sub: 'demo-usta-12', firstName: 'Hüseyin', lastName: 'Erdoğan', categorySlug: 'nakliyat', district: 'Maltepe', lat: 40.9357, lng: 29.1310, years: 14, price: 'NEGOTIABLE', bio: 'Evden eve nakliyat ve parça eşya taşıma.' },
-];
 
 async function seedDemoPros() {
   for (const demo of demoPros) {
@@ -264,8 +271,10 @@ async function seedDemoPros() {
     const profile = await prisma.proProfile.upsert({
       where: { userId: user.id },
       update: {
+        mainCategoryId: category.id,
         latitude: demo.lat,
         longitude: demo.lng,
+        district: demo.district,
         verificationStatus: 'VERIFIED',
         isPublished: true,
       },
@@ -273,8 +282,11 @@ async function seedDemoPros() {
         userId: user.id,
         mainCategoryId: category.id,
         bio: demo.bio,
-        yearsExperience: demo.years,
-        serviceMode: 'ON_SITE',
+        serviceMode: category.mode.includes('Atölye')
+          ? category.mode.includes('Yerinde')
+            ? 'BOTH'
+            : 'WORKSHOP'
+          : 'ON_SITE',
         priceApproach: demo.price,
         priceAmount: demo.amount,
         city: 'İstanbul',
@@ -290,18 +302,20 @@ async function seedDemoPros() {
       where: { proProfileId: profile.id },
     });
     await prisma.proProfileSubService.createMany({
-      data: category.subServices
-        .slice(0, 3)
-        .map((s) => ({ proProfileId: profile.id, subServiceId: s.id })),
+      data: category.subServices.map((s) => ({
+        proProfileId: profile.id,
+        subServiceId: s.id,
+      })),
     });
 
     await prisma.proProfileBrand.deleteMany({
       where: { proProfileId: profile.id },
     });
     await prisma.proProfileBrand.createMany({
-      data: category.brands
-        .slice(0, 4)
-        .map((b) => ({ proProfileId: profile.id, brandId: b.id })),
+      data: category.brands.map((b) => ({
+        proProfileId: profile.id,
+        brandId: b.id,
+      })),
     });
 
     await prisma.workingHour.deleteMany({
@@ -312,6 +326,18 @@ async function seedDemoPros() {
         proProfileId: profile.id,
         dayOfWeek: day,
         isOpen: day !== 7,
+        opensAt: day === 6 ? '10:00' : '08:00',
+        closesAt: day === 6 ? '16:00' : '20:00',
+      })),
+    });
+
+    await prisma.proRegion.deleteMany({
+      where: { proProfileId: profile.id },
+    });
+    await prisma.proRegion.createMany({
+      data: ['Kadıköy', 'Ataşehir', 'Üsküdar'].map((name) => ({
+        proProfileId: profile.id,
+        name,
       })),
     });
   }

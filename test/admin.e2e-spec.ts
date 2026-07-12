@@ -45,7 +45,7 @@ describe('Admin (e2e)', () => {
 
     // Başvuran kullanıcı vitrin kurup doğrulamaya gönderir.
     const category = await prisma.category.findUniqueOrThrow({
-      where: { slug: 'boyaci' },
+      where: { slug: 'boya' },
       include: { subServices: true },
     });
     await request(app.getHttpServer())

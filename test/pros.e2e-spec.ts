@@ -44,7 +44,7 @@ describe('Pros (e2e)', () => {
 
   const buildDto = async () => {
     const category = await prisma.category.findUniqueOrThrow({
-      where: { slug: 'beyaz-esya-servisi' },
+      where: { slug: 'kombi' },
       include: { subServices: true, brands: true },
     });
     return {

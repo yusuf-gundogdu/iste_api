@@ -35,6 +35,11 @@ export class LiveSocialTokenVerifier extends SocialTokenVerifier {
   ): Promise<SocialIdentity> {
     try {
       if (provider === 'GOOGLE') {
+        // Audience tanımsızken doğrulama yapılmaz (herhangi bir uygulamanın
+        // Google token'ı kabul edilirdi).
+        if (!process.env.GOOGLE_CLIENT_ID) {
+          throw new Error('GOOGLE_CLIENT_ID tanımsız');
+        }
         const ticket = await this.google.verifyIdToken({
           idToken,
           audience: process.env.GOOGLE_CLIENT_ID,
@@ -49,6 +54,9 @@ export class LiveSocialTokenVerifier extends SocialTokenVerifier {
         };
       }
 
+      if (!process.env.APPLE_BUNDLE_ID) {
+        throw new Error('APPLE_BUNDLE_ID tanımsız');
+      }
       const { payload } = await jwtVerify(idToken, this.appleJwks, {
         issuer: 'https://appleid.apple.com',
         audience: process.env.APPLE_BUNDLE_ID,

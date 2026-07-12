@@ -37,7 +37,7 @@ describe('Discover (e2e)', () => {
     const res = await request(app.getHttpServer()).get(base).expect(200);
 
     const items = res.body as DiscoverItem[];
-    expect(items.length).toBeGreaterThanOrEqual(10);
+    expect(items.length).toBeGreaterThanOrEqual(8);
     // Mesafe artan sırada
     const distances = items.map((i) => i.distanceKm);
     expect([...distances].sort((a, b) => a - b)).toEqual(distances);
@@ -46,12 +46,12 @@ describe('Discover (e2e)', () => {
 
   it('kategori filtresi çalışır', async () => {
     const res = await request(app.getHttpServer())
-      .get(`${base}&categorySlug=elektrikci`)
+      .get(`${base}&categorySlug=elektrik`)
       .expect(200);
 
     const items = res.body as DiscoverItem[];
-    expect(items.length).toBeGreaterThanOrEqual(2);
-    expect(items.every((i) => i.categorySlug === 'elektrikci')).toBe(true);
+    expect(items.length).toBeGreaterThanOrEqual(1);
+    expect(items.every((i) => i.categorySlug === 'elektrik')).toBe(true);
   });
 
   it('dar yarıçap uzak ustaları eler', async () => {

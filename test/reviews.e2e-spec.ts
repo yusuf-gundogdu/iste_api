@@ -46,7 +46,7 @@ describe('Reviews (e2e)', () => {
       where: {
         verificationStatus: 'VERIFIED',
         isPublished: true,
-        user: { providerSub: 'demo-usta-12' },
+        user: { providerSub: 'demo-deniz-aksoy' },
       },
       include: { user: true },
     });
@@ -137,7 +137,7 @@ describe('Reviews (e2e)', () => {
 
   it('discover puanı taşır', async () => {
     const res = await request(app.getHttpServer())
-      .get('/api/v1/pros/discover?lat=40.9357&lng=29.1310&radiusKm=3')
+      .get('/api/v1/pros/discover?lat=41.0080&lng=29.0100&radiusKm=3')
       .expect(200);
     const item = (
       res.body as Array<{

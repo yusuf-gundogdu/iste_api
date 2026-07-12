@@ -37,12 +37,12 @@ describe('Categories (e2e)', () => {
 
     const body = res.body as CategoryItem[];
     expect(body.length).toBeGreaterThanOrEqual(10);
-    expect(body.map((c) => c.slug)).toContain('elektrikci');
+    expect(body.map((c) => c.slug)).toContain('elektrik');
   });
 
   it('GET /categories/:slug alt hizmet ve markaları döner', async () => {
     const res = await request(app.getHttpServer())
-      .get('/api/v1/categories/beyaz-esya-servisi')
+      .get('/api/v1/categories/kombi')
       .expect(200);
 
     const body = res.body as {
@@ -51,8 +51,8 @@ describe('Categories (e2e)', () => {
       brands: unknown[];
     };
     expect(body.requiresBrandModel).toBe(true);
-    expect(body.subServices.length).toBeGreaterThanOrEqual(5);
-    expect(body.brands.length).toBeGreaterThanOrEqual(5);
+    expect(body.subServices.length).toBeGreaterThanOrEqual(3);
+    expect(body.brands.length).toBeGreaterThanOrEqual(3);
   });
 
   it('GET /categories/yok 404 döner', async () => {

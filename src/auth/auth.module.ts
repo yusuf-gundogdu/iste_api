@@ -27,10 +27,20 @@ import {
     JwtAuthGuard,
     {
       provide: SocialTokenVerifier,
-      useClass:
-        process.env.GOOGLE_CLIENT_ID || process.env.APPLE_BUNDLE_ID
-          ? LiveSocialTokenVerifier
-          : DevSocialTokenVerifier,
+      useFactory: () => {
+        const hasKeys =
+          process.env.GOOGLE_CLIENT_ID || process.env.APPLE_BUNDLE_ID;
+        if (hasKeys) return new LiveSocialTokenVerifier();
+        // Dev doğrulayıcısı üretimde ASLA devreye giremez — imzasız token
+        // kabul eder; anahtarsız production açılışı bilinçli olarak durdurulur.
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(
+            'Üretimde GOOGLE_CLIENT_ID / APPLE_BUNDLE_ID zorunludur — ' +
+              'DevSocialTokenVerifier production ortamında kullanılamaz.',
+          );
+        }
+        return new DevSocialTokenVerifier();
+      },
     },
   ],
   exports: [AuthService, JwtAuthGuard],

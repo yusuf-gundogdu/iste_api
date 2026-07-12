@@ -386,6 +386,8 @@ model Category {
   slug               String  @unique
   name               String
   icon               String // mobil taraftaki ikon anahtarı
+  description        String  @default("Bu kategorideki ustaları keşfet.") // prototip catDesc
+  mode               String  @default("Yerinde") // Yerinde / Atölye / Yerinde + Atölye
   sortOrder          Int     @default(0)
   requiresBrandModel Boolean @default(false)
 
