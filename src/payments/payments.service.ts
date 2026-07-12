@@ -290,7 +290,25 @@ export class PaymentsService {
       },
       orderBy: { createdAt: 'desc' },
       include: {
-        serviceRecord: { select: { title: true, status: true } },
+        serviceRecord: {
+          select: {
+            title: true,
+            status: true,
+            scheduledAt: true,
+            address: true,
+          },
+        },
+        conversation: {
+          select: {
+            proProfile: {
+              select: {
+                id: true,
+                mainCategory: { select: { name: true } },
+                user: { select: { firstName: true, lastName: true } },
+              },
+            },
+          },
+        },
         events: { orderBy: { createdAt: 'asc' } },
       },
     });
@@ -326,7 +344,25 @@ export class PaymentsService {
     const payment = await this.prisma.payment.findUniqueOrThrow({
       where: { id: paymentId },
       include: {
-        serviceRecord: { select: { title: true, status: true } },
+        serviceRecord: {
+          select: {
+            title: true,
+            status: true,
+            scheduledAt: true,
+            address: true,
+          },
+        },
+        conversation: {
+          select: {
+            proProfile: {
+              select: {
+                id: true,
+                mainCategory: { select: { name: true } },
+                user: { select: { firstName: true, lastName: true } },
+              },
+            },
+          },
+        },
         events: { orderBy: { createdAt: 'asc' } },
       },
     });
@@ -345,7 +381,19 @@ export class PaymentsService {
       requestedByUserId: string;
       paidByUserId: string | null;
       createdAt: Date;
-      serviceRecord: { title: string | null; status: string };
+      serviceRecord: {
+        title: string | null;
+        status: string;
+        scheduledAt: Date | null;
+        address: string | null;
+      };
+      conversation: {
+        proProfile: {
+          id: string;
+          mainCategory: { name: string };
+          user: { firstName: string | null; lastName: string | null };
+        };
+      };
       events: Array<{ status: string; note: string | null; createdAt: Date }>;
     },
     userId?: string,
@@ -360,6 +408,17 @@ export class PaymentsService {
       note: payment.note,
       title: payment.serviceRecord.title,
       serviceStatus: payment.serviceRecord.status,
+      scheduledAt: payment.serviceRecord.scheduledAt,
+      address: payment.serviceRecord.address,
+      proProfileId: payment.conversation.proProfile.id,
+      categoryName: payment.conversation.proProfile.mainCategory.name,
+      proName:
+        [
+          payment.conversation.proProfile.user.firstName,
+          payment.conversation.proProfile.user.lastName,
+        ]
+          .filter(Boolean)
+          .join(' ') || 'Usta',
       isRequester: userId ? payment.requestedByUserId === userId : undefined,
       createdAt: payment.createdAt,
       timeline: payment.events.map((e) => ({
