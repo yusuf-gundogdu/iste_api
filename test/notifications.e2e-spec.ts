@@ -95,6 +95,19 @@ describe('Notifications (e2e)', () => {
     expect((count.body as { count: number }).count).toBe(0);
   });
 
+  it("'Temizle' tüm bildirimleri siler (prototip)", async () => {
+    await request(app.getHttpServer())
+      .delete('/api/v1/notifications')
+      .set('Authorization', `Bearer ${proToken}`)
+      .expect(200);
+
+    const list = await request(app.getHttpServer())
+      .get('/api/v1/notifications')
+      .set('Authorization', `Bearer ${proToken}`)
+      .expect(200);
+    expect(list.body).toEqual([]);
+  });
+
   it('müşterinin bildirim listesi kendi bildirimleriyle sınırlı', async () => {
     const list = await request(app.getHttpServer())
       .get('/api/v1/notifications')
