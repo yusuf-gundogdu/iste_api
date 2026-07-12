@@ -5,8 +5,8 @@ import { PrismaService } from '../prisma/prisma.service';
 export class CategoriesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list() {
-    return this.prisma.category.findMany({
+  async list() {
+    const categories = await this.prisma.category.findMany({
       orderBy: { sortOrder: 'asc' },
       select: {
         id: true,
@@ -16,8 +16,21 @@ export class CategoriesService {
         description: true,
         mode: true,
         requiresBrandModel: true,
+        subServices: {
+          orderBy: { sortOrder: 'asc' },
+          select: { name: true },
+        },
+        _count: {
+          select: { proProfiles: { where: { isPublished: true } } },
+        },
       },
     });
+    // Kategoriler ekranı (prototip cats): alt hizmet adları + usta sayısı.
+    return categories.map(({ subServices, _count, ...rest }) => ({
+      ...rest,
+      subServiceNames: subServices.map((s) => s.name),
+      proCount: _count.proProfiles,
+    }));
   }
 
   async detail(slug: string) {
