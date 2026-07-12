@@ -63,6 +63,8 @@ export class AccountService {
         record.agreedAmount == null ? null : Number(record.agreedAmount),
       hasReview: record.review != null,
       latestPayment: record.payments[0] ?? null,
+      scheduledAt: record.scheduledAt,
+      address: record.address,
       updatedAt: record.updatedAt,
     }));
   }
