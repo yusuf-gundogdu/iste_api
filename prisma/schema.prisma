@@ -81,6 +81,9 @@ model ProProfile {
   city               String             @default("")
   district           String             @default("")
   emergency          String             @default("Yok") // Acil hizmet: Var / Yok / Hafta içi (prototip)
+  isOnline           Boolean            @default(true) // panel çevrimiçi/çevrimdışı toggle (prototip)
+  bankName           String? // aktarım hesabı (prototip payoutReq)
+  iban               String?
   latitude           Float?
   longitude          Float?
   verificationStatus VerificationStatus @default(MISSING)
@@ -98,6 +101,7 @@ model ProProfile {
   conversations Conversation[]
   reviews       Review[]
   favoritedBy   Favorite[]
+  payouts       Payout[]
 
   @@index([mainCategoryId])
   @@map("pro_profiles")
@@ -382,6 +386,20 @@ model Notification {
 
 // ─── Katalog ─────────────────────────────────────────────────────────────
 // Kategori → alt hizmet ağacı; gerekli kategorilerde marka uzmanlığı.
+
+/// Banka aktarım talebi (prototip payouts/payoutReq).
+model Payout {
+  id           String   @id @default(uuid())
+  proProfileId String
+  amount       Decimal  @db.Decimal(10, 2)
+  status       String   @default("REQUESTED") // REQUESTED → COMPLETED
+  createdAt    DateTime @default(now())
+
+  proProfile ProProfile @relation(fields: [proProfileId], references: [id], onDelete: Cascade)
+
+  @@index([proProfileId, createdAt])
+  @@map("payouts")
+}
 
 model Category {
   id                 String  @id @default(uuid())

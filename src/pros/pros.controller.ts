@@ -11,7 +11,15 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { CurrentUser, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { JwtPayload } from '../auth/auth.service';
 import { ProsService } from './pros.service';
@@ -26,6 +34,26 @@ class AddGalleryImageDto {
   @IsString()
   @MaxLength(80)
   title?: string;
+}
+
+class SetOnlineDto {
+  @IsBoolean()
+  isOnline: boolean;
+}
+
+class BankAccountDto {
+  @IsString()
+  @MaxLength(60)
+  bankName: string;
+
+  @Matches(/^TR\d{24}$/)
+  iban: string;
+}
+
+class CreatePayoutDto {
+  @IsNumber()
+  @Min(1)
+  amount: number;
 }
 
 @Controller('pros')
@@ -60,6 +88,33 @@ export class ProsController {
   @Get('me/earnings')
   myEarnings(@CurrentUser() user: JwtPayload) {
     return this.pros.myEarnings(user.sub);
+  }
+
+  /** Panel çevrimiçi/çevrimdışı toggle'ı (prototip). */
+  @UseGuards(JwtAuthGuard)
+  @Put('me/online')
+  setOnline(@CurrentUser() user: JwtPayload, @Body() dto: SetOnlineDto) {
+    return this.pros.setOnline(user.sub, dto.isOnline);
+  }
+
+  /** Aktarım hesabı (prototip payoutReq banka satırı). */
+  @UseGuards(JwtAuthGuard)
+  @Put('me/bank-account')
+  setBankAccount(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: BankAccountDto,
+  ) {
+    return this.pros.setBankAccount(user.sub, dto.bankName, dto.iban);
+  }
+
+  /** Banka hesabına aktarım talebi (prototip payouts). */
+  @UseGuards(JwtAuthGuard)
+  @Post('me/payouts')
+  createPayout(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: CreatePayoutDto,
+  ) {
+    return this.pros.createPayout(user.sub, dto.amount);
   }
 
   @UseGuards(JwtAuthGuard)

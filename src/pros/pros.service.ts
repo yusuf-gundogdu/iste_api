@@ -197,11 +197,20 @@ export class ProsService {
     return Math.max(1, Math.round(avgMs / 60_000));
   }
 
-  /** Usta paneli özeti (anayasa RP5 — ilk odak iş değil sohbet). */
+  /** Usta paneli özeti (prototip pdash: selamlama + toggle + metrikler +
+   *  bugün planlanan + yeni müşteri sohbetleri). */
   async myDashboard(userId: string) {
     const profile = await this.prisma.proProfile.findUnique({
       where: { userId },
-      select: { id: true, verificationStatus: true, isPublished: true },
+      select: {
+        id: true,
+        verificationStatus: true,
+        isPublished: true,
+        isOnline: true,
+        user: {
+          select: { firstName: true, lastName: true, avatarUrl: true },
+        },
+      },
     });
     if (!profile) {
       throw new NotFoundException('Usta vitrini henüz kurulmamış');
@@ -210,42 +219,215 @@ export class ProsService {
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
 
-    const [released, secured, newConversations, activeRecords] =
-      await Promise.all([
-        this.prisma.payment.aggregate({
-          where: {
-            requestedByUserId: userId,
-            status: 'RELEASED',
-            updatedAt: { gte: monthStart },
+    const [
+      released,
+      secured,
+      newConversations,
+      activeRecords,
+      paymentPendingCount,
+      ratingAgg,
+      todayRecords,
+      newChatRecords,
+    ] = await Promise.all([
+      this.prisma.payment.aggregate({
+        where: {
+          requestedByUserId: userId,
+          status: 'RELEASED',
+          updatedAt: { gte: monthStart },
+        },
+        _sum: { netAmount: true },
+      }),
+      this.prisma.payment.aggregate({
+        where: { requestedByUserId: userId, status: 'SECURED' },
+        _sum: { netAmount: true },
+      }),
+      this.prisma.serviceRecord.count({
+        where: {
+          conversation: { proProfileId: profile.id },
+          status: 'DISCUSSING',
+        },
+      }),
+      this.prisma.serviceRecord.count({
+        where: {
+          conversation: { proProfileId: profile.id },
+          status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+        },
+      }),
+      this.prisma.serviceRecord.count({
+        where: {
+          conversation: { proProfileId: profile.id },
+          status: 'PAYMENT_PENDING',
+        },
+      }),
+      this.prisma.review.aggregate({
+        where: { proProfileId: profile.id },
+        _avg: { rating: true },
+      }),
+      this.prisma.serviceRecord.findMany({
+        where: {
+          conversation: { proProfileId: profile.id },
+          scheduledAt: { gte: dayStart, lt: dayEnd },
+          status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+        },
+        orderBy: { scheduledAt: 'asc' },
+        include: {
+          conversation: {
+            select: {
+              id: true,
+              customer: { select: { firstName: true, lastName: true } },
+            },
           },
-          _sum: { netAmount: true },
-        }),
-        this.prisma.payment.aggregate({
-          where: { requestedByUserId: userId, status: 'SECURED' },
-          _sum: { netAmount: true },
-        }),
-        this.prisma.serviceRecord.count({
-          where: {
-            conversation: { proProfileId: profile.id },
-            status: 'DISCUSSING',
+        },
+      }),
+      this.prisma.serviceRecord.findMany({
+        where: {
+          conversation: { proProfileId: profile.id },
+          status: 'DISCUSSING',
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 3,
+        include: {
+          conversation: {
+            select: {
+              id: true,
+              customer: { select: { firstName: true, lastName: true } },
+              messages: {
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+                select: { body: true, type: true, createdAt: true },
+              },
+            },
           },
-        }),
-        this.prisma.serviceRecord.count({
-          where: {
-            conversation: { proProfileId: profile.id },
-            status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
-          },
-        }),
-      ]);
+        },
+      }),
+    ]);
+
+    const customerName = (customer: {
+      firstName: string | null;
+      lastName: string | null;
+    }) =>
+      [customer.firstName, customer.lastName?.[0]]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || 'Müşteri';
 
     return {
+      displayName:
+        [profile.user.firstName, profile.user.lastName]
+          .filter(Boolean)
+          .join(' ') || 'Usta',
+      avatarUrl: profile.user.avatarUrl,
+      isOnline: profile.isOnline,
       verificationStatus: profile.verificationStatus,
       isPublished: profile.isPublished,
       monthEarnings: Number(released._sum.netAmount ?? 0),
       securedAmount: Number(secured._sum.netAmount ?? 0),
       newConversations,
       activeJobs: activeRecords,
+      paymentPendingCount,
+      ratingAvg: ratingAgg._avg.rating,
+      todayJobs: todayRecords.map((record) => ({
+        conversationId: record.conversation.id,
+        time: record.scheduledAt,
+        title: record.title ?? 'Hizmet',
+        customerName: customerName(record.conversation.customer),
+        address: record.address,
+        status: record.status,
+      })),
+      newChats: newChatRecords.map((record) => ({
+        conversationId: record.conversation.id,
+        customerName: customerName(record.conversation.customer),
+        title: record.title ?? 'Yeni talep',
+        lastMessage: record.conversation.messages[0]?.type === 'TEXT'
+          ? record.conversation.messages[0].body
+          : record.conversation.messages[0] != null
+            ? 'Fotoğraf / konum'
+            : '',
+        at: record.conversation.messages[0]?.createdAt ?? record.updatedAt,
+      })),
+    };
+  }
+
+  /** Panel çevrimiçi/çevrimdışı toggle'ı (prototip). */
+  async setOnline(userId: string, isOnline: boolean) {
+    const profile = await this.prisma.proProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!profile) {
+      throw new NotFoundException('Usta vitrini henüz kurulmamış');
+    }
+    const updated = await this.prisma.proProfile.update({
+      where: { id: profile.id },
+      data: { isOnline },
+      select: { isOnline: true },
+    });
+    return updated;
+  }
+
+  /** Aktarım hesabını kaydeder (prototip payoutReq banka satırı). */
+  async setBankAccount(userId: string, bankName: string, iban: string) {
+    const profile = await this.prisma.proProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!profile) {
+      throw new NotFoundException('Usta vitrini henüz kurulmamış');
+    }
+    await this.prisma.proProfile.update({
+      where: { id: profile.id },
+      data: { bankName, iban },
+    });
+    return { bankName, ibanMasked: this.maskIban(iban) };
+  }
+
+  private maskIban(iban: string) {
+    return `TR•• •••• •••• ${iban.slice(-4)}`;
+  }
+
+  /** Banka hesabına aktarım talebi — aktarılabilir bakiyeyi aşamaz. */
+  async createPayout(userId: string, amount: number) {
+    const profile = await this.prisma.proProfile.findUnique({
+      where: { userId },
+      select: { id: true, bankName: true, iban: true },
+    });
+    if (!profile) {
+      throw new NotFoundException('Usta vitrini henüz kurulmamış');
+    }
+    if (!profile.iban) {
+      throw new BadRequestException('Önce banka hesabı eklemelisin');
+    }
+
+    const [releasedAll, payoutsAll] = await Promise.all([
+      this.prisma.payment.aggregate({
+        where: { requestedByUserId: userId, status: 'RELEASED' },
+        _sum: { netAmount: true },
+      }),
+      this.prisma.payout.aggregate({
+        where: { proProfileId: profile.id },
+        _sum: { amount: true },
+      }),
+    ]);
+    const available =
+      Number(releasedAll._sum.netAmount ?? 0) -
+      Number(payoutsAll._sum.amount ?? 0);
+    if (amount > available + 0.01) {
+      throw new BadRequestException('Aktarılabilir kazancını aşamazsın');
+    }
+
+    const payout = await this.prisma.payout.create({
+      data: { proProfileId: profile.id, amount },
+    });
+    return {
+      id: payout.id,
+      amount: Number(payout.amount),
+      status: payout.status,
+      createdAt: payout.createdAt,
     };
   }
 
@@ -296,6 +478,34 @@ export class ProsService {
 
   /** Kazanç ekranı: özet + ödeme listesi (cüzdan dili YOK — anayasa). */
   async myEarnings(userId: string) {
+    const profile = await this.prisma.proProfile.findUnique({
+      where: { userId },
+      select: { id: true, bankName: true, iban: true },
+    });
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const [monthReleased, payoutsAgg, payoutList] = await Promise.all([
+      this.prisma.payment.aggregate({
+        where: {
+          requestedByUserId: userId,
+          status: 'RELEASED',
+          updatedAt: { gte: monthStart },
+        },
+        _sum: { netAmount: true },
+      }),
+      this.prisma.payout.aggregate({
+        where: { proProfileId: profile?.id ?? '' },
+        _sum: { amount: true },
+      }),
+      this.prisma.payout.findMany({
+        where: { proProfileId: profile?.id ?? '' },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      }),
+    ]);
+
     const [releasedAll, secured, commission, payments] = await Promise.all([
       this.prisma.payment.aggregate({
         where: { requestedByUserId: userId, status: 'RELEASED' },
@@ -315,21 +525,63 @@ export class ProsService {
       this.prisma.payment.findMany({
         where: { requestedByUserId: userId },
         orderBy: { createdAt: 'desc' },
-        include: { serviceRecord: { select: { title: true } } },
+        include: {
+          serviceRecord: {
+            select: {
+              title: true,
+              status: true,
+              review: { select: { id: true } },
+            },
+          },
+          conversation: {
+            select: {
+              customer: { select: { firstName: true, lastName: true } },
+            },
+          },
+        },
       }),
     ]);
 
+    const transferredTotal = Number(releasedAll._sum.netAmount ?? 0);
+    const paidOut = Number(payoutsAgg._sum.amount ?? 0);
+
     return {
       summary: {
-        transferred: Number(releasedAll._sum.netAmount ?? 0),
+        transferred: transferredTotal,
         secured: Number(secured._sum.netAmount ?? 0),
         commission: Number(commission._sum.commissionAmount ?? 0),
+        // Prototip payouts ekranı: aktarılabilir bakiye + bu ay toplam.
+        available: Math.max(0, transferredTotal - paidOut),
+        monthTotal: Number(monthReleased._sum.netAmount ?? 0),
+        commissionPct: 2,
       },
+      bank: profile?.iban == null
+          ? null
+          : {
+              bankName: profile.bankName ?? 'Banka',
+              ibanMasked: this.maskIban(profile.iban),
+            },
+      payouts: payoutList.map((payout) => ({
+        id: payout.id,
+        amount: Number(payout.amount),
+        status: payout.status,
+        createdAt: payout.createdAt,
+      })),
       payments: payments.map((p) => ({
         id: p.id,
         conversationId: p.conversationId,
         title: p.serviceRecord.title,
         status: p.status,
+        serviceStatus: p.serviceRecord.status,
+        hasReview: p.serviceRecord.review != null,
+        customerName:
+          [
+            p.conversation.customer.firstName,
+            p.conversation.customer.lastName?.[0],
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .trim() || 'Müşteri',
         amount: Number(p.amount),
         commissionAmount: Number(p.commissionAmount),
         netAmount: Number(p.netAmount),
