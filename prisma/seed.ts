@@ -238,6 +238,24 @@ async function main() {
     },
   });
 
+  // Demo giriş hesabı (login ekranındaki "Demo ile giriş" butonu).
+  await prisma.user.upsert({
+    where: {
+      provider_providerSub: {
+        provider: 'GOOGLE',
+        providerSub: 'demo-kullanici',
+      },
+    },
+    update: {},
+    create: {
+      provider: 'GOOGLE',
+      providerSub: 'demo-kullanici',
+      email: 'demo@iste.app',
+      firstName: 'Demo',
+      lastName: 'Kullanıcı',
+    },
+  });
+
   const counts = {
     categories: await prisma.category.count(),
     subServices: await prisma.subService.count(),
