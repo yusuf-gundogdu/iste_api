@@ -80,6 +80,7 @@ model ProProfile {
   priceAmount        Decimal?           @db.Decimal(10, 2)
   city               String             @default("")
   district           String             @default("")
+  emergency          String             @default("Yok") // Acil hizmet: Var / Yok / Hafta içi (prototip)
   latitude           Float?
   longitude          Float?
   verificationStatus VerificationStatus @default(MISSING)

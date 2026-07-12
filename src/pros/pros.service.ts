@@ -135,6 +135,20 @@ export class ProsService {
     const isoDow = ((new Date().getDay() + 6) % 7) + 1;
     const today = profile.workingHours.find((h) => h.dayOfWeek === isoDow);
 
+    // Profil başlığındaki 3 istatistik kutusu + categoryFit bandı verisi:
+    // yorum özeti ve son mesajlaşmalardan hesaplanan ortalama yanıt süresi.
+    const [reviewAgg, verifiedCount, responseMinutes] = await Promise.all([
+      this.prisma.review.aggregate({
+        where: { proProfileId: id },
+        _avg: { rating: true },
+        _count: true,
+      }),
+      this.prisma.review.count({
+        where: { proProfileId: id, isVerified: true },
+      }),
+      this.averageResponseMinutes(id, profile.userId),
+    ]);
+
     return {
       ...profile,
       priceAmount:
@@ -144,7 +158,43 @@ export class ProsService {
           .filter(Boolean)
           .join(' ') || 'Usta',
       openToday: today?.isOpen ?? false,
+      ratingAvg: reviewAgg._avg.rating,
+      reviewCount: reviewAgg._count,
+      verifiedReviewCount: verifiedCount,
+      responseMinutes,
     };
+  }
+
+  /** Müşteri mesajı → ustanın ilk yanıtı arası ortalama süre (dakika). */
+  private async averageResponseMinutes(
+    proProfileId: string,
+    proUserId: string,
+  ): Promise<number | null> {
+    const messages = await this.prisma.message.findMany({
+      where: { conversation: { proProfileId } },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+      select: { conversationId: true, senderId: true, createdAt: true },
+    });
+    const byConversation = new Map<string, typeof messages>();
+    for (const message of messages.reverse()) {
+      const list = byConversation.get(message.conversationId) ?? [];
+      list.push(message);
+      byConversation.set(message.conversationId, list);
+    }
+    const gaps: number[] = [];
+    for (const list of byConversation.values()) {
+      for (let i = 1; i < list.length; i++) {
+        const prev = list[i - 1];
+        const curr = list[i];
+        if (prev.senderId !== proUserId && curr.senderId === proUserId) {
+          gaps.push(curr.createdAt.getTime() - prev.createdAt.getTime());
+        }
+      }
+    }
+    if (gaps.length === 0) return null;
+    const avgMs = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+    return Math.max(1, Math.round(avgMs / 60_000));
   }
 
   /** Usta paneli özeti (anayasa RP5 — ilk odak iş değil sohbet). */

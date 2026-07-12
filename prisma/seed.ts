@@ -140,6 +140,7 @@ interface DemoPro {
   lat: number;
   lng: number;
   bio: string;
+  emergency: string;
   price: 'NEGOTIABLE' | 'STARTING' | 'FIXED';
   amount?: number;
 }
@@ -147,16 +148,16 @@ interface DemoPro {
 // Konumlar Kadıköy merkezine (40.9903, 29.0264) prototipteki km
 // mesafelerini verecek şekilde yerleştirildi.
 const demoPros: DemoPro[] = [
-  { sub: 'demo-mehmet-kaya', firstName: 'Mehmet', lastName: 'Kaya', categorySlug: 'elektrik', district: 'Kadıköy', lat: 40.9903, lng: 29.0407, bio: 'Elektrik ustası. Avize montajı, priz arızası ve pano işleri.', price: 'NEGOTIABLE' },
-  { sub: 'demo-ayse-yildiz', firstName: 'Ayşe', lastName: 'Yıldız', categorySlug: 'su-tesisati', district: 'Moda', lat: 40.9714, lng: 29.0264, bio: 'Su tesisatı: tıkanıklık, musluk ve su kaçağı işleri.', price: 'NEGOTIABLE' },
-  { sub: 'demo-emre-koc', firstName: 'Emre', lastName: 'Koç', categorySlug: 'klima', district: 'Osmanağa', lat: 40.9903, lng: 29.0169, bio: 'Klima montaj, gaz dolumu ve bakım. Yerinde + atölye.', price: 'STARTING', amount: 600 },
-  { sub: 'demo-selin-demir', firstName: 'Selin', lastName: 'Demir', categorySlug: 'boya', district: 'Feneryolu', lat: 40.9736, lng: 29.0603, bio: 'İç cephe, dekoratif boya ve tavan işleri.', price: 'NEGOTIABLE' },
-  { sub: 'demo-hakan-celik', firstName: 'Hakan', lastName: 'Çelik', categorySlug: 'telefon', district: 'Rasimpaşa', lat: 41.0016, lng: 29.0326, bio: 'Telefon tamiri: ekran, batarya, şarj soketi. Atölye.', price: 'STARTING', amount: 1200 },
-  { sub: 'demo-nadir-baris', firstName: 'Nadir', lastName: 'Barış', categorySlug: 'kombi', district: 'Acıbadem', lat: 41.0093, lng: 29.0450, bio: 'Kombi arıza, bakım ve petek temizliği yapıyorum. Tüm marka kombilerde yetkili servis deneyimim var.', price: 'FIXED', amount: 150 },
+  { sub: 'demo-mehmet-kaya', firstName: 'Mehmet', lastName: 'Kaya', categorySlug: 'elektrik', district: 'Kadıköy', lat: 40.9903, lng: 29.0407, bio: 'Elektrik ustası. Avize montajı, priz arızası ve pano işleri.', emergency: 'Var', price: 'NEGOTIABLE' },
+  { sub: 'demo-ayse-yildiz', firstName: 'Ayşe', lastName: 'Yıldız', categorySlug: 'su-tesisati', district: 'Moda', lat: 40.9714, lng: 29.0264, bio: 'Su tesisatı: tıkanıklık, musluk ve su kaçağı işleri.', emergency: 'Var', price: 'NEGOTIABLE' },
+  { sub: 'demo-emre-koc', firstName: 'Emre', lastName: 'Koç', categorySlug: 'klima', district: 'Osmanağa', lat: 40.9903, lng: 29.0169, bio: 'Klima montaj, gaz dolumu ve bakım. Yerinde + atölye.', emergency: 'Yok', price: 'STARTING', amount: 600 },
+  { sub: 'demo-selin-demir', firstName: 'Selin', lastName: 'Demir', categorySlug: 'boya', district: 'Feneryolu', lat: 40.9736, lng: 29.0603, bio: 'İç cephe, dekoratif boya ve tavan işleri.', emergency: 'Yok', price: 'NEGOTIABLE' },
+  { sub: 'demo-hakan-celik', firstName: 'Hakan', lastName: 'Çelik', categorySlug: 'telefon', district: 'Rasimpaşa', lat: 41.0016, lng: 29.0326, bio: 'Telefon tamiri: ekran, batarya, şarj soketi. Atölye.', emergency: 'Yok', price: 'STARTING', amount: 1200 },
+  { sub: 'demo-nadir-baris', firstName: 'Nadir', lastName: 'Barış', categorySlug: 'kombi', district: 'Acıbadem', lat: 41.0093, lng: 29.0450, bio: 'Kombi arıza, bakım ve petek temizliği yapıyorum. Tüm marka kombilerde yetkili servis deneyimim var.', emergency: 'Var', price: 'FIXED', amount: 150 },
   // Prototipte "Tadilat" kategorisiz usta (Yağmur Aslan, yeni/yorumsuz) —
   // CATS'te Tadilat olmadığı için en yakın kategori Marangoz'a bağlandı.
-  { sub: 'demo-yagmur-aslan', firstName: 'Yağmur', lastName: 'Aslan', categorySlug: 'marangoz', district: 'Caferağa', lat: 40.9995, lng: 29.0450, bio: 'Tadilat ve montaj işleri.', price: 'NEGOTIABLE' },
-  { sub: 'demo-deniz-aksoy', firstName: 'Deniz', lastName: 'Aksoy', categorySlug: 'kombi', district: 'Koşuyolu', lat: 41.0080, lng: 29.0100, bio: 'Kombi bakım ve arıza.', price: 'NEGOTIABLE' },
+  { sub: 'demo-yagmur-aslan', firstName: 'Yağmur', lastName: 'Aslan', categorySlug: 'marangoz', district: 'Caferağa', lat: 40.9995, lng: 29.0450, bio: 'Tadilat ve montaj işleri.', emergency: 'Yok', price: 'NEGOTIABLE' },
+  { sub: 'demo-deniz-aksoy', firstName: 'Deniz', lastName: 'Aksoy', categorySlug: 'kombi', district: 'Koşuyolu', lat: 41.0080, lng: 29.0100, bio: 'Kombi bakım ve arıza.', emergency: 'Hafta içi', price: 'NEGOTIABLE' },
 ];
 
 async function main() {
@@ -275,6 +276,7 @@ async function seedDemoPros() {
         latitude: demo.lat,
         longitude: demo.lng,
         district: demo.district,
+        emergency: demo.emergency,
         verificationStatus: 'VERIFIED',
         isPublished: true,
       },
@@ -291,6 +293,7 @@ async function seedDemoPros() {
         priceAmount: demo.amount,
         city: 'İstanbul',
         district: demo.district,
+        emergency: demo.emergency,
         latitude: demo.lat,
         longitude: demo.lng,
         verificationStatus: 'VERIFIED',
