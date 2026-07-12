@@ -14,6 +14,7 @@ export interface CreateReviewInput {
   punctuality?: number;
   workmanship?: number;
   body?: string;
+  photoUrl?: string;
 }
 
 @Injectable()
@@ -62,6 +63,7 @@ export class ReviewsService {
         punctuality: input.punctuality,
         workmanship: input.workmanship,
         body: input.body?.trim() ?? '',
+        photoUrl: input.photoUrl,
         isVerified,
       },
     });
@@ -155,6 +157,7 @@ export class ReviewsService {
         punctuality: review.punctuality,
         workmanship: review.workmanship,
         body: review.body,
+        photoUrl: review.photoUrl,
         isVerified: review.isVerified,
         proReply: review.proReply,
         serviceTitle: review.serviceRecord.title,

@@ -308,6 +308,7 @@ model Review {
   punctuality     Int?
   workmanship     Int?
   body            String   @default("")
+  photoUrl        String? // prototip "Fotoğraf ekle" — sunucu diski yolu
   isVerified      Boolean  @default(false) // uygulama içi ödeme ile doğrulandı
   proReply        String?
   repliedAt       DateTime?

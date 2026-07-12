@@ -8,6 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  Matches,
   IsInt,
   IsOptional,
   IsString,
@@ -52,6 +53,10 @@ class CreateReviewDto {
   @IsString()
   @MaxLength(1000)
   body?: string;
+
+  @IsOptional()
+  @Matches(/^\/uploads\/[\w.-]+$/)
+  photoUrl?: string;
 }
 
 class ReplyDto {
