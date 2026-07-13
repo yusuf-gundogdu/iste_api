@@ -694,7 +694,12 @@ export class ProsService {
     if (!profile) {
       throw new NotFoundException('Usta vitrini henüz kurulmamış');
     }
-    return profile;
+    // Ham IBAN hiçbir yanıtta cihaza inmez; yalnız maskeli hali döner
+    // (kazanç/aktarım yüzeyleri de maskeli formatı kullanır).
+    return {
+      ...profile,
+      iban: profile.iban == null ? null : this.maskIban(profile.iban),
+    };
   }
 
   /** Taslak oluşturur/günceller. Doğrulama durumu değişmez (submit ayrı). */
@@ -768,10 +773,15 @@ export class ProsService {
         })),
       });
 
-      return tx.proProfile.findUniqueOrThrow({
+      const saved = await tx.proProfile.findUniqueOrThrow({
         where: { id: profile.id },
         include: profileInclude,
       });
+      // Ham IBAN yanıtla cihaza inmez (getMine ile aynı kural).
+      return {
+        ...saved,
+        iban: saved.iban == null ? null : this.maskIban(saved.iban),
+      };
     });
   }
 

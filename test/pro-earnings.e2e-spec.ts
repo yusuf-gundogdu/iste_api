@@ -157,6 +157,29 @@ describe('Pro earnings & panel (e2e)', () => {
       .expect(400);
   });
 
+  it('ham IBAN hiçbir uçtan sızmaz (earnings + /pros/me maskeli)', async () => {
+    const earnings = await request(app.getHttpServer())
+      .get('/api/v1/pros/me/earnings')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(earnings.body.bank).toEqual({
+      bankName: 'Ziraat Bankası',
+      ibanMasked: 'TR•• •••• •••• 1326',
+    });
+    expect(JSON.stringify(earnings.body)).not.toContain(
+      'TR330006100519786457841326',
+    );
+
+    const mine = await request(app.getHttpServer())
+      .get('/api/v1/pros/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(mine.body.iban).toBe('TR•• •••• •••• 1326');
+    expect(JSON.stringify(mine.body)).not.toContain(
+      'TR330006100519786457841326',
+    );
+  });
+
   it('aktarılabilir bakiyeyi aşan talep reddedilir (prototip kuralı)', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/pros/me/payouts')
