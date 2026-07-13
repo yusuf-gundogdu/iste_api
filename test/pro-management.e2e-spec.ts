@@ -79,7 +79,7 @@ describe('Pro management (e2e)', () => {
       'Kimlik doğrulama',
       'Ustalık belgesi',
       'Doğalgaz yetki belgesi',
-      'Adres & vergi bilgisi',
+      'Adres / vergi bilgisi',
     ]);
 
     const uploaded = await auth(
@@ -183,6 +183,90 @@ describe('Pro management (e2e)', () => {
       request(app.getHttpServer()).get('/api/v1/pros/me'),
     ).expect(200);
     expect(me.body.workingHours).toHaveLength(7);
+  });
+
+  it('galeri: ekle → sırayla listelenir → sil → yeni ekleme sona gider (prototip proGallery)', async () => {
+    // 4 prototip karosu sırayla eklenir; sortOrder 0..3 artar.
+    const titles = [
+      'Montaj işi',
+      'Bakım / onarım',
+      'Arıza çözümü',
+      'Tamamlanan iş',
+    ];
+    const ids: string[] = [];
+    for (const [i, title] of titles.entries()) {
+      const created = await auth(
+        request(app.getHttpServer()).post('/api/v1/pros/me/gallery'),
+      )
+        .send({ url: `/uploads/demo-work-${i + 1}.webp`, title })
+        .expect(201);
+      expect(created.body).toMatchObject({
+        url: `/uploads/demo-work-${i + 1}.webp`,
+        title,
+        sortOrder: i,
+      });
+      ids.push(created.body.id as string);
+    }
+
+    // /pros/me galeri sortOrder'a göre döner.
+    const me = await auth(
+      request(app.getHttpServer()).get('/api/v1/pros/me'),
+    ).expect(200);
+    expect(
+      (me.body.gallery as Array<{ title: string }>).map((g) => g.title),
+    ).toEqual(titles);
+
+    // uploads dışı yol ve 80+ karakter başlık reddedilir.
+    await auth(request(app.getHttpServer()).post('/api/v1/pros/me/gallery'))
+      .send({ url: 'https://kotu.example/x.png' })
+      .expect(400);
+    await auth(request(app.getHttpServer()).post('/api/v1/pros/me/gallery'))
+      .send({ url: '/uploads/x.webp', title: 'a'.repeat(81) })
+      .expect(400);
+
+    // Aradan silme + yeni ekleme: sortOrder çakışmaz, yeni görsel sona gider.
+    await auth(
+      request(app.getHttpServer()).delete(
+        `/api/v1/pros/me/gallery/${ids[1]}`,
+      ),
+    )
+      .expect(200)
+      .expect(({ body }) => expect(body.deleted).toBe(true));
+    const appended = await auth(
+      request(app.getHttpServer()).post('/api/v1/pros/me/gallery'),
+    )
+      .send({ url: '/uploads/demo-work-2.webp', title: 'Yeni iş' })
+      .expect(201);
+    expect(appended.body.sortOrder).toBe(4);
+    const after = await auth(
+      request(app.getHttpServer()).get('/api/v1/pros/me'),
+    ).expect(200);
+    expect(
+      (after.body.gallery as Array<{ title: string }>).map((g) => g.title),
+    ).toEqual(['Montaj işi', 'Arıza çözümü', 'Tamamlanan iş', 'Yeni iş']);
+
+    // Var olmayan / başkasına ait görsel 404.
+    await auth(
+      request(app.getHttpServer()).delete(
+        `/api/v1/pros/me/gallery/${ids[1]}`,
+      ),
+    ).expect(404);
+
+    // 20 sınırı: doldur → 21. ekleme 400.
+    const current = after.body.gallery as unknown[];
+    for (let i = current.length; i < 20; i += 1) {
+      await auth(
+        request(app.getHttpServer()).post('/api/v1/pros/me/gallery'),
+      )
+        .send({ url: '/uploads/demo-work-1.webp', title: `Dolgu ${i}` })
+        .expect(201);
+    }
+    await auth(request(app.getHttpServer()).post('/api/v1/pros/me/gallery'))
+      .send({ url: '/uploads/demo-work-1.webp', title: 'Taşan' })
+      .expect(400)
+      .expect(({ body }) =>
+        expect(body.message).toBe('En fazla 20 iş örneği ekleyebilirsin'),
+      );
   });
 
   it('profil PATCH: bio + fiyat notu + kapak (prototip editProfile)', async () => {

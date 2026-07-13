@@ -45,7 +45,7 @@ const profileInclude = {
     include: { subService: { select: { id: true, name: true } } },
   },
   brands: { include: { brand: { select: { id: true, name: true } } } },
-  regions: { select: { id: true, name: true } },
+  regions: { select: { id: true, name: true, approxKm: true } },
   workingHours: { orderBy: { dayOfWeek: 'asc' as const } },
   gallery: { orderBy: { sortOrder: 'asc' as const } },
 } as const;
@@ -796,12 +796,18 @@ export class ProsService {
     if (profile._count.gallery >= 20) {
       throw new BadRequestException('En fazla 20 iş örneği ekleyebilirsin');
     }
+    // Yeni görsel her zaman sona eklenir. Not: count yerine max+1 —
+    // aradan silme sonrası sortOrder çakışması (belirsiz sıra) olmasın.
+    const last = await this.prisma.proGalleryImage.aggregate({
+      where: { proProfileId: profile.id },
+      _max: { sortOrder: true },
+    });
     return this.prisma.proGalleryImage.create({
       data: {
         proProfileId: profile.id,
         url,
         title,
-        sortOrder: profile._count.gallery,
+        sortOrder: (last._max.sortOrder ?? -1) + 1,
       },
     });
   }
@@ -865,7 +871,7 @@ export class ProsService {
       { docType: 'identity', title: 'Kimlik doğrulama' },
       { docType: 'mastery', title: 'Ustalık belgesi' },
       { docType: 'license', title: 'Doğalgaz yetki belgesi' },
-      { docType: 'address-tax', title: 'Adres & vergi bilgisi' },
+      { docType: 'address-tax', title: 'Adres / vergi bilgisi' },
     ];
     const existing = await this.prisma.proDocument.findMany({
       where: { proProfileId: profile.id },
@@ -893,13 +899,13 @@ export class ProsService {
       identity: 'Kimlik doğrulama',
       mastery: 'Ustalık belgesi',
       license: 'Doğalgaz yetki belgesi',
-      'address-tax': 'Adres & vergi bilgisi',
+      'address-tax': 'Adres / vergi bilgisi',
     };
     const doc = await this.prisma.proDocument.upsert({
       where: {
         proProfileId_docType: { proProfileId: profile.id, docType },
       },
-      update: { url, status: 'IN_REVIEW' },
+      update: { url, title: titles[docType], status: 'IN_REVIEW' },
       create: {
         proProfileId: profile.id,
         docType,

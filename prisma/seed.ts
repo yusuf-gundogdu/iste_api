@@ -165,7 +165,49 @@ interface DemoPro {
   reviewCount: number;
   /** Prototip responseTime (dk) — mesaj çifti ile üretilir. */
   responseMinutes?: number;
+  /** Prototip noGallery (Yağmur Aslan): iş örneği karosu hiç yok. */
+  noGallery?: boolean;
   named: NamedReview[];
+}
+
+/**
+ * Prototip galleryItems — her ustada 4 iş karosu (noGallery hariç):
+ * avatars/work1..4.svg görselleri + sabit başlıklar. SVG'ler prototipten
+ * AYNEN gömüldü; seed sharp ile webp'e çevirip UPLOAD_DIR'e yazar
+ * (mobil taraf SVG çözemediği için webp).
+ */
+const GALLERY_TITLES = [
+  'Montaj işi',
+  'Bakım / onarım',
+  'Arıza çözümü',
+  'Tamamlanan iş',
+];
+const GALLERY_SVGS = [
+  '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="#F5E9D8"></rect><circle cx="150" cy="150" r="84" fill="#EFDCC4"></circle><path d="M168 66 L104 168 L146 168 L132 234 L198 128 L156 128 Z" fill="#D9532E"></path></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="#E7EFE0"></rect><circle cx="150" cy="150" r="84" fill="#D9E9C5"></circle><path d="M150 74 C150 74 100 140 100 172 a50 50 0 0 0 100 0 C200 140 150 74 150 74 Z" fill="#3E7CE0"></path></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="#F0E6EC"></rect><circle cx="150" cy="150" r="84" fill="#E7D5DF"></circle><rect x="96" y="104" width="84" height="30" rx="6" fill="#8E5A9E"></rect><rect x="168" y="112" width="36" height="14" rx="4" fill="#5A3A66"></rect><rect x="140" y="134" width="12" height="40" fill="#5A3A66"></rect><rect x="128" y="170" width="36" height="50" rx="6" fill="#8E5A9E"></rect></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="#EDE6DA"></rect><circle cx="150" cy="150" r="84" fill="#E1D8C7"></circle><path d="M120 110 a30 30 0 1 0 34 44 L196 196 L214 178 L172 136 A30 30 0 0 0 120 110 Z" fill="#2B2B33"></path><circle cx="128" cy="122" r="9" fill="#EDE6DA"></circle></svg>',
+];
+
+/** work1..4 webp dosyalarını UPLOAD_DIR'e yazar; /uploads yollarını döner. */
+async function seedGalleryImages(): Promise<string[]> {
+  // Uygulama bağımlılığı (uploads.service ile aynı): SVG → webp.
+  const { default: sharp } = await import('sharp');
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const dir = process.env.UPLOAD_DIR ?? './uploads';
+  await mkdir(dir, { recursive: true });
+  const urls: string[] = [];
+  for (const [i, svg] of GALLERY_SVGS.entries()) {
+    const name = `demo-work-${i + 1}.webp`;
+    const webp = await sharp(Buffer.from(svg), { density: 192 })
+      .resize(600, 600)
+      .webp({ quality: 88 })
+      .toBuffer();
+    await writeFile(join(dir, name), webp);
+    urls.push(`/uploads/${name}`);
+  }
+  return urls;
 }
 
 // Konumlar Kadıköy merkezine (40.9903, 29.0264) prototipteki km
@@ -321,6 +363,7 @@ const demoPros: DemoPro[] = [
     closesAt: '18:00',
     rating: null, // prototip "Yeni" — hiç yorum yok
     reviewCount: 0,
+    noGallery: true, // prototip: yeni ustanın iş örneği yok
     named: [],
   },
   {
@@ -468,6 +511,9 @@ async function main() {
 }
 
 async function seedDemoPros() {
+  // Prototip iş örneği görselleri (work1..4) diske yazılır.
+  const galleryUrls = await seedGalleryImages();
+
   // Yorum müşterileri tek seferde hazırlanır (idempotent: skipDuplicates).
   await prisma.user.createMany({
     data: Array.from({ length: DEMO_CUSTOMER_COUNT }, (_, i) => ({
@@ -543,6 +589,7 @@ async function seedDemoPros() {
         longitude: demo.lng,
         district: demo.district,
         emergency: demo.emergency,
+        maxDistanceKm: 8,
         verificationStatus: 'VERIFIED',
         isPublished: true,
       },
@@ -558,6 +605,7 @@ async function seedDemoPros() {
         emergency: demo.emergency,
         latitude: demo.lat,
         longitude: demo.lng,
+        maxDistanceKm: 8,
         verificationStatus: 'VERIFIED',
         isPublished: true,
       },
@@ -603,12 +651,33 @@ async function seedDemoPros() {
     await prisma.proRegion.deleteMany({
       where: { proProfileId: profile.id },
     });
+    // Prototip 38: Kadıköy merkez, Ataşehir ~5 km, Üsküdar ~7 km.
     await prisma.proRegion.createMany({
-      data: ['Kadıköy', 'Ataşehir', 'Üsküdar'].map((name) => ({
+      data: [
+        { name: 'Kadıköy', approxKm: null },
+        { name: 'Ataşehir', approxKm: 5 },
+        { name: 'Üsküdar', approxKm: 7 },
+      ].map((r) => ({
         proProfileId: profile.id,
-        name,
+        name: r.name,
+        approxKm: r.approxKm,
       })),
     });
+
+    // Prototip galleryItems: noGallery (Yağmur) hariç 4'er iş karosu.
+    await prisma.proGalleryImage.deleteMany({
+      where: { proProfileId: profile.id },
+    });
+    if (!demo.noGallery) {
+      await prisma.proGalleryImage.createMany({
+        data: galleryUrls.map((url, i) => ({
+          proProfileId: profile.id,
+          url,
+          title: GALLERY_TITLES[i],
+          sortOrder: i,
+        })),
+      });
+    }
 
     await seedDemoReviews(demo, profile.id, user.id, bulkCustomers, category);
   }
