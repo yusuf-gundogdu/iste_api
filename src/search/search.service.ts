@@ -20,6 +20,15 @@ interface SearchProRow {
   yearsExperience: number | null;
   distanceKm: number;
   openToday: boolean;
+  serviceMode: string;
+  emergency: string;
+  verifiedReviewCount: number;
+  hasGallery: boolean;
+  openNow: boolean;
+  openTomorrow: boolean;
+  worksWeekend: boolean;
+  worksEvening: boolean;
+  responseMinutes: number | null;
 }
 
 @Injectable()
@@ -73,7 +82,43 @@ export class SearchService {
           (SELECT ROUND(AVG(r.rating)::numeric, 1) FROM reviews r
             WHERE r."proProfileId" = p.id)::float AS "ratingAvg",
           (SELECT COUNT(*) FROM reviews r
-            WHERE r."proProfileId" = p.id)::int AS "reviewCount"
+            WHERE r."proProfileId" = p.id)::int AS "reviewCount",
+          p."serviceMode"::text AS "serviceMode",
+          p.emergency,
+          (SELECT COUNT(*) FROM reviews r
+            WHERE r."proProfileId" = p.id AND r."isVerified")::int
+            AS "verifiedReviewCount",
+          EXISTS(SELECT 1 FROM pro_gallery_images g
+            WHERE g."proProfileId" = p.id) AS "hasGallery",
+          EXISTS(SELECT 1 FROM working_hours w
+            WHERE w."proProfileId" = p.id AND w."dayOfWeek" = ${isoDow}
+              AND w."isOpen"
+              AND w."opensAt" <= to_char(NOW(), 'HH24:MI')
+              AND w."closesAt" >= to_char(NOW(), 'HH24:MI')) AS "openNow",
+          EXISTS(SELECT 1 FROM working_hours w
+            WHERE w."proProfileId" = p.id
+              AND w."dayOfWeek" = ${(isoDow % 7) + 1}
+              AND w."isOpen") AS "openTomorrow",
+          EXISTS(SELECT 1 FROM working_hours w
+            WHERE w."proProfileId" = p.id AND w."dayOfWeek" IN (6, 7)
+              AND w."isOpen") AS "worksWeekend",
+          EXISTS(SELECT 1 FROM working_hours w
+            WHERE w."proProfileId" = p.id AND w."isOpen"
+              AND w."closesAt" >= '19:00') AS "worksEvening",
+          (SELECT ROUND(AVG(t.diff) / 60)::int FROM (
+            SELECT EXTRACT(EPOCH FROM (m."createdAt" - LAG(m."createdAt")
+                     OVER (PARTITION BY m."conversationId"
+                           ORDER BY m."createdAt"))) AS diff,
+                   m."senderId",
+                   LAG(m."senderId") OVER (PARTITION BY m."conversationId"
+                                           ORDER BY m."createdAt") AS prev
+            FROM messages m
+            JOIN conversations cv ON cv.id = m."conversationId"
+            WHERE cv."proProfileId" = p.id
+          ) t
+          WHERE t."senderId" = p."userId"
+            AND t.prev IS DISTINCT FROM p."userId"
+            AND t.diff IS NOT NULL) AS "responseMinutes"
         FROM pro_profiles p
         JOIN users u ON u.id = p."userId"
         JOIN categories c ON c.id = p."mainCategoryId"

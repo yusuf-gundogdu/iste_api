@@ -10,6 +10,14 @@ interface SearchResponse {
     displayName: string;
     categorySlug: string;
     distanceKm: number;
+    serviceMode: string | null;
+    emergency: string | null;
+    verifiedReviewCount: number;
+    openNow: boolean;
+    openTomorrow: boolean;
+    worksWeekend: boolean;
+    worksEvening: boolean;
+    responseMinutes: number | null;
   }>;
 }
 
@@ -45,6 +53,18 @@ describe('Search (e2e)', () => {
     ).toBe(true);
     expect(body.pros.length).toBeGreaterThanOrEqual(1);
     expect(body.pros.every((p) => p.categorySlug === 'elektrik')).toBe(true);
+
+    // Yerel filtreler (mobil filtre sheet'i) bu alanlara dayanır —
+    // arama ucu discover ile aynı zenginlikte dönmeli.
+    const pro = body.pros[0];
+    expect(typeof pro.openNow).toBe('boolean');
+    expect(typeof pro.openTomorrow).toBe('boolean');
+    expect(typeof pro.worksWeekend).toBe('boolean');
+    expect(typeof pro.worksEvening).toBe('boolean');
+    expect(typeof pro.verifiedReviewCount).toBe('number');
+    expect(pro).toHaveProperty('serviceMode');
+    expect(pro).toHaveProperty('emergency');
+    expect(pro).toHaveProperty('responseMinutes');
   });
 
   it('alt hizmet adıyla arama usta bulur (petek temizliği)', async () => {
