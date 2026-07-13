@@ -124,13 +124,22 @@ export class AccountService {
             user: {
               select: { firstName: true, lastName: true, avatarUrl: true },
             },
-            workingHours: { select: { dayOfWeek: true, isOpen: true } },
+            workingHours: {
+              select: {
+                dayOfWeek: true,
+                isOpen: true,
+                opensAt: true,
+                closesAt: true,
+              },
+            },
             _count: { select: { reviews: true } },
           },
         },
       },
     });
     const isoDow = ((new Date().getDay() + 6) % 7) + 1;
+    const tomorrowDow = (isoDow % 7) + 1;
+    const nowHm = new Date().toTimeString().slice(0, 5); // HH:MM
 
     const ids = favorites.map((f) => f.proProfileId);
     const ratings = ids.length
@@ -140,10 +149,22 @@ export class AccountService {
           _avg: { rating: true },
         })
       : [];
+    // Prototip favori kartı rozetleri: "Doğrulanmış işlem" + müsaitlik hapı.
+    const verifiedCounts = ids.length
+      ? await this.prisma.review.groupBy({
+          by: ['proProfileId'],
+          where: { proProfileId: { in: ids }, isVerified: true },
+          _count: true,
+        })
+      : [];
 
     return favorites.map((favorite) => {
       const pro = favorite.proProfile;
       const rating = ratings.find((r) => r.proProfileId === pro.id);
+      const today = pro.workingHours.find((h) => h.dayOfWeek === isoDow);
+      const tomorrow = pro.workingHours.find(
+        (h) => h.dayOfWeek === tomorrowDow,
+      );
       return {
         id: pro.id,
         displayName:
@@ -159,9 +180,15 @@ export class AccountService {
         latitude: pro.latitude ?? 0,
         longitude: pro.longitude ?? 0,
         distanceKm: this.distanceKm(pro.latitude, pro.longitude),
-        openToday:
-          pro.workingHours.find((h) => h.dayOfWeek === isoDow)?.isOpen ??
-          false,
+        openToday: today?.isOpen ?? false,
+        openNow: !!(
+          today?.isOpen &&
+          today.opensAt <= nowHm &&
+          today.closesAt >= nowHm
+        ),
+        openTomorrow: tomorrow?.isOpen ?? false,
+        verifiedReviewCount:
+          verifiedCounts.find((v) => v.proProfileId === pro.id)?._count ?? 0,
         priceApproach: pro.priceApproach,
         priceAmount: pro.priceAmount == null ? null : Number(pro.priceAmount),
         yearsExperience: pro.yearsExperience,

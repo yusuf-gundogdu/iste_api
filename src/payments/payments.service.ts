@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ChatGateway } from '../conversations/chat.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentProvider } from './providers/payment.provider';
@@ -26,6 +27,7 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly provider: PaymentProvider,
     private readonly notifications: NotificationsService,
+    private readonly chatGateway: ChatGateway,
   ) {}
 
   /** Usta sohbetten ödeme talebi oluşturur → hizmet PAYMENT_PENDING. */
@@ -68,7 +70,7 @@ export class PaymentsService {
     }
 
     const commission = Math.round(input.amount * COMMISSION_RATE * 100) / 100;
-    const [payment] = await this.prisma.$transaction([
+    const [payment, , requestMessage] = await this.prisma.$transaction([
       this.prisma.payment.create({
         data: {
           conversationId: conversation.id,
@@ -104,6 +106,13 @@ export class PaymentsService {
         },
       }),
     ]);
+
+    // Sohbeti açık tutan müşteri bilgi mesajını canlı görür.
+    this.chatGateway.emitToConversation(
+      conversation.id,
+      'message:new',
+      requestMessage,
+    );
 
     await this.notifications.notify({
       userId: conversation.customerId,
@@ -167,7 +176,7 @@ export class PaymentsService {
     });
 
     if (verification.success) {
-      await this.prisma.$transaction([
+      const [, , securedMessage] = await this.prisma.$transaction([
         this.prisma.payment.update({
           where: { id: paymentId },
           data: {
@@ -190,6 +199,11 @@ export class PaymentsService {
           },
         }),
       ]);
+      this.chatGateway.emitToConversation(
+        payment.conversationId,
+        'message:new',
+        securedMessage,
+      );
       await this.notifications.notify({
         userId: payment.requestedByUserId,
         type: 'PAYMENT_SECURED',
@@ -302,7 +316,13 @@ export class PaymentsService {
   async listMine(userId: string) {
     const payments = await this.prisma.payment.findMany({
       where: {
-        OR: [{ paidByUserId: userId }, { requestedByUserId: userId }],
+        // Sohbetin müşterisi henüz ödemediği (REQUESTED) talebi de görür;
+        // aksi halde sohbetteki "Güvenli Ödeme Yap" açık talebi bulamaz.
+        OR: [
+          { paidByUserId: userId },
+          { requestedByUserId: userId },
+          { conversation: { customerId: userId } },
+        ],
       },
       orderBy: { createdAt: 'desc' },
       include: {
