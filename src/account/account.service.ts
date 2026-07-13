@@ -63,7 +63,14 @@ export class AccountService {
       agreedAmount:
         record.agreedAmount == null ? null : Number(record.agreedAmount),
       hasReview: record.review != null,
-      latestPayment: record.payments[0] ?? null,
+      // Prisma Decimal JSON'da string'e döner; mobil num bekler (Bölüm 12).
+      latestPayment: record.payments[0]
+        ? {
+            id: record.payments[0].id,
+            status: record.payments[0].status,
+            amount: Number(record.payments[0].amount),
+          }
+        : null,
       scheduledAt: record.scheduledAt,
       address: record.address,
       updatedAt: record.updatedAt,
