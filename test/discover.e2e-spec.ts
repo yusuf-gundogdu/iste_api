@@ -14,7 +14,7 @@ interface DiscoverItem {
 describe('Discover (e2e)', () => {
   let app: INestApplication<App>;
   // Kadıköy merkez — seed'deki demo ustaların çevresi.
-  const base = '/api/v1/pros/discover?lat=40.99&lng=29.03';
+  const base = '/api/v1/pros/discover?lat=41.32&lng=36.33';
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({

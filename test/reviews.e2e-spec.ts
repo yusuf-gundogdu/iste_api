@@ -154,7 +154,7 @@ describe('Reviews (e2e)', () => {
 
   it('discover puanı taşır', async () => {
     const res = await request(app.getHttpServer())
-      .get('/api/v1/pros/discover?lat=41.0080&lng=29.0100&radiusKm=3')
+      .get('/api/v1/pros/discover?lat=41.32&lng=36.33&radiusKm=8')
       .expect(200);
     const item = (
       res.body as Array<{

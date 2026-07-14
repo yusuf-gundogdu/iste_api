@@ -289,7 +289,22 @@ interface NamedReview {
   title: string; // hizmet kaydı başlığı (yorum ekranında görünür)
 }
 
-/** Prototip PROS dizisi — isimler/kategoriler/puanlar/mesafeler aynen. */
+/**
+ * Uygulama içi ödeme geçmişi (kazanç ekranı + "Doğrulanmış işlem" verisi).
+ * Her kayıt kendi Conversation → ServiceRecord(COMPLETED) → Payment zincirini
+ * kurar; ayrı bir ödeme müşterisi (demo-odeme-*) ile eşleşir.
+ */
+interface PaymentSeed {
+  amount: number;
+  status: 'SECURED' | 'RELEASED';
+  title: string;
+  daysAgo: number;
+  customerFirst: string;
+  customerLast: string;
+  note?: string;
+}
+
+/** Atakum ustaları — gerçekçi Samsun demo verisi. */
 interface DemoPro {
   sub: string;
   firstName: string;
@@ -302,20 +317,49 @@ interface DemoPro {
   emergency: string;
   price: 'NEGOTIABLE' | 'STARTING' | 'FIXED';
   amount?: number;
-  /** Prototip hours (ör. "09:00 – 20:00"). */
+  /** Deneyim yılı (profil başlığı). */
+  yearsExperience?: number;
+  /** Alt hizmet seçimi (kategori alt hizmet adları). Yoksa hepsi atanır. */
+  subServices?: string[];
+  /** Marka uzmanlığı (kategori marka adları). Yoksa hepsi atanır. */
+  brands?: string[];
+  /** Hizmet bölgeleri. Yoksa Atakum varsayılanı kullanılır. */
+  regions?: Array<{ name: string; approxKm: number | null }>;
+  /** Uygulama içi ödeme geçmişi (kazanç + doğrulanmış işlem verisi). */
+  payments?: PaymentSeed[];
+  /** Çalışma saatleri (ör. "09:00 – 20:00"). */
   opensAt: string;
   closesAt: string;
-  /** Prototip avail "Yarın uygun": bugün kapalı, diğer günler açık. */
+  /** "Yarın uygun": bugün kapalı, diğer günler açık. */
   closedToday?: boolean;
-  /** Prototip rating (ROUND(AVG,1) bu değeri verir) + reviews sayısı. */
+  /** rating (ROUND(AVG,1) bu değeri verir) + reviews sayısı. */
   rating: number | null;
   reviewCount: number;
-  /** Prototip responseTime (dk) — mesaj çifti ile üretilir. */
+  /** responseTime (dk) — mesaj çifti ile üretilir. */
   responseMinutes?: number;
-  /** Prototip noGallery (Yağmur Aslan): iş örneği karosu hiç yok. */
+  /** noGallery (yeni/yorumsuz ustalar): iş örneği karosu hiç yok. */
   noGallery?: boolean;
   named: NamedReview[];
 }
+
+// Atakum merkez (41.3200, 36.3300). 1 km ≈ 0.0090° enlem, 0.0120° boylam @41°.
+// Ustalar merkeze göre verilen mesafe (km) + yön (derece) ile konumlanır;
+// PostGIS geography discover sorgusu gerçek mesafeyi bu noktalardan hesaplar.
+const ATAKUM_CENTER = { lat: 41.32, lng: 36.33 };
+const KM_PER_DEG_LAT = 0.009;
+const KM_PER_DEG_LNG = 0.012;
+function atakumCoord(km: number, bearingDeg: number) {
+  const rad = (bearingDeg * Math.PI) / 180;
+  return {
+    lat: ATAKUM_CENTER.lat + km * Math.cos(rad) * KM_PER_DEG_LAT,
+    lng: ATAKUM_CENTER.lng + km * Math.sin(rad) * KM_PER_DEG_LNG,
+  };
+}
+
+const DEFAULT_REGIONS: Array<{ name: string; approxKm: number | null }> = [
+  { name: 'Atakum', approxKm: null },
+  { name: 'İlkadım', approxKm: 7 },
+];
 
 /**
  * Prototip galleryItems — her ustada 4 iş karosu (noGallery hariç):
@@ -357,42 +401,49 @@ async function seedGalleryImages(): Promise<string[]> {
   return urls;
 }
 
-// Konumlar Kadıköy merkezine (40.9903, 29.0264) prototipteki km
-// mesafelerini verecek şekilde yerleştirildi (PostGIS geography ile
-// doğrulandı: 1.2 / 2.1 / 0.8 / 3.4 / 1.6 / 2.8 / 1.9 / 2.4 km).
+// Konumlar Samsun Atakum merkezine (41.3200, 36.3300) göre mesafe (km) +
+// yön (derece) ile yerleştirilir; atakumCoord() gerçek koordinatı üretir.
+// PostGIS geography discover sorgusu mesafeyi bu noktalardan hesaplar.
 const demoPros: DemoPro[] = [
+  // ── 1) Elektrik — genel usta, köklü (Denizevleri, ~1.2 km) ──────────────
   {
     sub: 'demo-mehmet-kaya',
     firstName: 'Mehmet',
     lastName: 'Kaya',
     categorySlug: 'elektrik',
-    district: 'Kadıköy',
-    lat: 40.9903,
-    lng: 29.0407, // 1.2 km
-    bio: '12 yıldır elektrik işleri yapıyorum. Kadıköy ve çevre ilçelere gidiyorum; pano, priz ve aydınlatma arızalarında hızlı çözüm sunarım.',
+    district: 'Denizevleri',
+    ...atakumCoord(1.2, 40),
+    bio: '12 yıldır Atakum ve Samsun genelinde elektrik işleri yapıyorum. Pano, priz ve aydınlatma arızalarında hızlı ve temiz çözüm sunarım. Denizevleri ve sahil hattına aynı gün gelebiliyorum.',
     emergency: 'Var',
     price: 'NEGOTIABLE',
+    yearsExperience: 12,
     opensAt: '09:00',
     closesAt: '20:00',
     rating: 4.9,
     reviewCount: 128,
     responseMinutes: 15,
+    regions: [
+      { name: 'Atakum', approxKm: null },
+      { name: 'İlkadım', approxKm: 6 },
+      { name: 'Canik', approxKm: 12 },
+    ],
     named: [
       { sub: 'demo-yorumcu-1', firstName: 'Ali', lastName: 'B.', rating: 5, daysAgo: 3, title: 'Priz arızası', body: 'Çok hızlı geldi, sorunu 20 dakikada çözdü. Temiz çalışıyor.' },
       { sub: 'demo-yorumcu-2', firstName: 'Sema', lastName: 'Ç.', rating: 5, daysAgo: 7, title: 'Avize montajı', body: 'Güler yüzlü ve işini biliyor. Fiyatı da gayet uygundu.' },
     ],
   },
+  // ── 2) Su tesisatı — genel usta, acil (Mimarsinan, ~2.1 km) ─────────────
   {
     sub: 'demo-ayse-yildiz',
     firstName: 'Hasan',
     lastName: 'Yıldız',
     categorySlug: 'su-tesisati',
-    district: 'Moda',
-    lat: 40.9714,
-    lng: 29.0264, // 2.1 km
-    bio: 'Tesisat tamiri ve tıkanıklık açma konusunda uzmanım. Kadıköy bölgesinde 8 yıldır hizmet veriyorum.',
+    district: 'Mimarsinan',
+    ...atakumCoord(2.1, 200),
+    bio: 'Tesisat tamiri ve tıkanıklık açmada uzmanım. Mimarsinan ve Atakum bölgesinde 8 yıldır hizmet veriyorum; su kaçağını kırmadan tespit ediyorum.',
     emergency: 'Var',
     price: 'NEGOTIABLE',
+    yearsExperience: 8,
     opensAt: '08:30',
     closesAt: '19:00',
     rating: 4.8,
@@ -403,21 +454,22 @@ const demoPros: DemoPro[] = [
       { sub: 'demo-yorumcu-4', firstName: 'Elif', lastName: 'Y.', rating: 4, daysAgo: 5, title: 'Musluk tamiri', body: 'İşini iyi yaptı, biraz geç geldi ama sonuç güzel.' },
     ],
   },
+  // ── 3) Klima — genel, bugün kapalı/yarın uygun (Körfez, ~0.9 km) ────────
   {
     sub: 'demo-emre-koc',
     firstName: 'Emre',
     lastName: 'Koç',
     categorySlug: 'klima',
-    district: 'Osmanağa',
-    lat: 40.9903,
-    lng: 29.0169, // 0.8 km
-    bio: 'Klima montaj, bakım ve gaz dolumu yapıyorum. Tüm marka split ve VRV sistemlerde deneyimliyim.',
+    district: 'Körfez',
+    ...atakumCoord(0.9, 300),
+    bio: 'Klima montaj, bakım ve gaz dolumu yapıyorum. Tüm marka split ve VRF sistemlerde deneyimliyim. Körfez ve Atakent çevresine montaj için randevu veriyorum.',
     emergency: 'Yok',
     price: 'STARTING',
     amount: 600,
+    yearsExperience: 9,
     opensAt: '10:00',
     closesAt: '18:00',
-    closedToday: true, // prototip "Yarın uygun"
+    closedToday: true, // "Yarın uygun"
     rating: 4.7,
     reviewCount: 74,
     responseMinutes: 30,
@@ -426,17 +478,18 @@ const demoPros: DemoPro[] = [
       { sub: 'demo-yorumcu-6', firstName: 'Nur', lastName: 'B.', rating: 4, daysAgo: 14, title: 'Klima bakım', body: 'Bakım için geldi, memnun kaldım.' },
     ],
   },
+  // ── 4) Boya — titiz usta, 5.0 (Balaç, ~3.4 km) ──────────────────────────
   {
     sub: 'demo-selin-demir',
     firstName: 'Serkan',
     lastName: 'Demir',
     categorySlug: 'boya',
-    district: 'Feneryolu',
-    lat: 40.9736,
-    lng: 29.0603, // 3.4 km
-    bio: 'İç mekan boya ve dekoratif uygulama yapıyorum. Toz kontrollü, temiz çalışmayı önemserim.',
+    district: 'Balaç',
+    ...atakumCoord(3.4, 150),
+    bio: 'İç mekan boya ve dekoratif uygulama yapıyorum. Toz kontrollü, temiz çalışmayı önemserim. Balaç ve çevresinde daire ve villa boyası yapıyorum.',
     emergency: 'Yok',
     price: 'NEGOTIABLE',
+    yearsExperience: 14,
     opensAt: '09:00',
     closesAt: '18:00',
     rating: 5.0,
@@ -447,42 +500,44 @@ const demoPros: DemoPro[] = [
       { sub: 'demo-yorumcu-8', firstName: 'İlker', lastName: 'K.', rating: 5, daysAgo: 21, title: 'İç cephe boya', body: 'Titiz ve hızlı. Kesinlikle tavsiye ederim.' },
     ],
   },
+  // ── 5) Telefon — atölye, çok yorumlu (Atakent, ~1.6 km) ─────────────────
   {
     sub: 'demo-hakan-celik',
     firstName: 'Hakan',
     lastName: 'Çelik',
     categorySlug: 'telefon',
-    district: 'Rasimpaşa',
-    lat: 41.0036,
-    lng: 29.0337, // 1.6 km
-    bio: 'Telefon ekran, batarya ve şarj soketi değişimi yapıyorum. Çoğu tamir aynı gün teslim.',
+    district: 'Atakent',
+    ...atakumCoord(1.6, 90),
+    bio: 'Atakent’teki atölyemde telefon ekran, batarya ve şarj soketi değişimi yapıyorum. Çoğu tamir aynı gün teslim; tüm parçalar garantili.',
     emergency: 'Yok',
     price: 'STARTING',
     amount: 1200,
-    // Prototip "Şu an uygun" (10:00–21:00 yerel): backend openNow saat
-    // dizgilerini DB NOW() (UTC) ile karşılaştırır; yerel 10:00 = 07:00 UTC.
+    yearsExperience: 10,
+    // Atölye her gün açık (openNow için 07:00 UTC = yerel 10:00).
     opensAt: '07:00',
-    closesAt: '21:00', // atölye her gün açık; >=19:00 → akşam filtresi
+    closesAt: '21:00',
     rating: 4.6,
     reviewCount: 210,
     responseMinutes: 10,
+    regions: [{ name: 'Atakum', approxKm: null }, { name: 'İlkadım', approxKm: 6 }],
     named: [
       { sub: 'demo-yorumcu-9', firstName: 'Onur', lastName: 'N.', rating: 5, daysAgo: 2, title: 'Ekran değişimi', body: 'Ekranı 40 dakikada değişti, orijinal kalite. Süper.' },
       { sub: 'demo-yorumcu-10', firstName: 'Berk', lastName: 'B.', rating: 4, daysAgo: 6, title: 'Batarya değişimi', body: 'Fiyat performans iyi, işini biliyor.' },
     ],
   },
+  // ── 6) Kombi — genel, sabit fiyat (Yeşiltepe, ~2.8 km) ──────────────────
   {
     sub: 'demo-nadir-baris',
     firstName: 'Nadir',
     lastName: 'Barış',
     categorySlug: 'kombi',
-    district: 'Acıbadem',
-    lat: 41.0106,
-    lng: 29.0462, // 2.8 km
-    bio: 'Kombi arıza, bakım ve petek temizliği yapıyorum. Tüm marka kombilerde yetkili servis deneyimim var.',
+    district: 'Yeşiltepe',
+    ...atakumCoord(2.8, 250),
+    bio: 'Kombi arıza, bakım ve petek temizliği yapıyorum. Tüm marka kombilerde yetkili servis deneyimim var. Yeşiltepe ve Atakum genelinde kış öncesi bakım için gelebiliyorum.',
     emergency: 'Var',
     price: 'FIXED',
     amount: 150,
+    yearsExperience: 11,
     opensAt: '08:00',
     closesAt: '20:00',
     rating: 4.9,
@@ -493,37 +548,38 @@ const demoPros: DemoPro[] = [
       { sub: 'demo-yorumcu-12', firstName: 'Faruk', lastName: 'Y.', rating: 5, daysAgo: 7, title: 'Petek temizliği', body: 'Petek temizliği sonrası ev çok daha iyi ısınıyor.' },
     ],
   },
-  // Prototipte "Tadilat" kategorisiz usta (Yağmur Aslan, yeni/yorumsuz) —
-  // CATS'te Tadilat olmadığı için en yakın kategori Marangoz'a bağlandı.
+  // ── 7) Tadilat — yeni/yorumsuz #1 (Cumhuriyet, ~1.9 km) ─────────────────
   {
     sub: 'demo-yagmur-aslan',
     firstName: 'Yavuz',
     lastName: 'Aslan',
-    categorySlug: 'marangoz',
-    district: 'Caferağa',
-    lat: 40.9995,
-    lng: 29.0450, // 1.9 km
-    bio: 'Tadilat ve montaj işleri.',
+    categorySlug: 'tadilat',
+    district: 'Cumhuriyet',
+    ...atakumCoord(1.9, 20),
+    bio: 'Banyo ve mutfak yenileme, fayans ve alçıpan işleri yapıyorum. Atakum’da yeni başladım; işçiliğime güveniyorum.',
     emergency: 'Yok',
     price: 'NEGOTIABLE',
+    yearsExperience: 5,
+    subServices: ['Banyo yenileme', 'Mutfak yenileme', 'Fayans / seramik'],
     opensAt: '09:00',
     closesAt: '18:00',
-    rating: null, // prototip "Yeni" — hiç yorum yok
+    rating: null, // yeni — hiç yorum yok
     reviewCount: 0,
-    noGallery: true, // prototip: yeni ustanın iş örneği yok
+    noGallery: true, // yeni ustanın iş örneği yok
     named: [],
   },
+  // ── 8) Kombi — az yorumlu, hafta içi acil (İncesu, ~2.4 km) ─────────────
   {
     sub: 'demo-deniz-aksoy',
     firstName: 'Deniz',
     lastName: 'Aksoy',
     categorySlug: 'kombi',
-    district: 'Koşuyolu',
-    lat: 41.008,
-    lng: 29.01, // 2.4 km
-    bio: 'Kombi bakım ve arıza servisi.',
+    district: 'İncesu',
+    ...atakumCoord(2.4, 110),
+    bio: 'Kombi bakım ve arıza servisi. İncesu ve Atakum çevresinde hafta içi hızlı destek veriyorum.',
     emergency: 'Hafta içi',
     price: 'NEGOTIABLE',
+    yearsExperience: 6,
     opensAt: '09:00',
     closesAt: '19:00',
     rating: 4.7,
@@ -532,6 +588,324 @@ const demoPros: DemoPro[] = [
     named: [
       { sub: 'demo-yorumcu-13', firstName: 'Mert', lastName: 'T.', rating: 5, daysAgo: 4, title: 'Kombi bakım', body: 'Hızlı ve temiz çalıştı.' },
     ],
+  },
+  // ── 9) Kombi — TEK MARKA uzmanı (Vaillant+Bosch), köklü + ÖDEME ─────────
+  {
+    sub: 'demo-okan-yucel',
+    firstName: 'Okan',
+    lastName: 'Yücel',
+    categorySlug: 'kombi',
+    district: 'Güzelyalı',
+    ...atakumCoord(3.1, 240),
+    bio: 'Yalnızca Vaillant ve Bosch kombilerde uzmanlaştım; bu iki markanın yetkili servis eğitimlerini aldım. 15 yıldır Atakum ve Güzelyalı’da arıza, bakım ve gaz emniyeti işleri yapıyorum.',
+    emergency: 'Var',
+    price: 'STARTING',
+    amount: 450,
+    yearsExperience: 15,
+    brands: ['Vaillant', 'Bosch'],
+    opensAt: '08:00',
+    closesAt: '19:00',
+    rating: 4.9,
+    reviewCount: 167,
+    responseMinutes: 12,
+    regions: [
+      { name: 'Atakum', approxKm: null },
+      { name: 'İlkadım', approxKm: 6 },
+      { name: 'Tekkeköy', approxKm: 18 },
+    ],
+    payments: [
+      { amount: 1800, status: 'RELEASED', title: 'Vaillant kombi arıza + gaz emniyet', daysAgo: 6, customerFirst: 'Bülent', customerLast: 'Aksoy', note: 'Kombi arızası + yıllık bakım' },
+      { amount: 950, status: 'SECURED', title: 'Bosch kombi yıllık bakım', daysAgo: 2, customerFirst: 'Sibel', customerLast: 'Karaca' },
+    ],
+    named: [
+      { sub: 'demo-yorumcu-14', firstName: 'Cengiz', lastName: 'D.', rating: 5, daysAgo: 2, title: 'Vaillant kombi arıza', body: 'Vaillant kombimi tek seferde çözdü, parçayı da yanında getirmişti. İşin ehli.' },
+      { sub: 'demo-yorumcu-15', firstName: 'Aylin', lastName: 'S.', rating: 5, daysAgo: 9, title: 'Bosch kombi bakım', body: 'Sadece bu iki markaya baktığı için çok bilgili. Bakım sonrası fatura da düştü.' },
+    ],
+  },
+  // ── 10) Klima — TEK MARKA uzmanı (Daikin+Mitsubishi), 5.0 + ÖDEME ───────
+  {
+    sub: 'demo-tolga-sen',
+    firstName: 'Tolga',
+    lastName: 'Şen',
+    categorySlug: 'klima',
+    district: 'Çatalçam',
+    ...atakumCoord(4.2, 70),
+    bio: 'Yalnızca Daikin ve Mitsubishi inverter klimalar üzerine çalışıyorum. Isı pompası ve VRV sistemlerde sertifikalıyım; Çatalçam ve Atakum’da montaj ve devreye alma yapıyorum.',
+    emergency: 'Yok',
+    price: 'STARTING',
+    amount: 750,
+    yearsExperience: 13,
+    brands: ['Daikin', 'Mitsubishi'],
+    subServices: ['Montaj', 'Bakım'],
+    opensAt: '08:30',
+    closesAt: '18:30',
+    rating: 5.0,
+    reviewCount: 89,
+    responseMinutes: 16,
+    payments: [
+      { amount: 4200, status: 'RELEASED', title: 'Daikin inverter klima montaj', daysAgo: 8, customerFirst: 'Erhan', customerLast: 'Bozkurt', note: 'Salon + yatak odası montaj' },
+    ],
+    named: [
+      { sub: 'demo-yorumcu-16', firstName: 'Deniz', lastName: 'K.', rating: 5, daysAgo: 3, title: 'Daikin montaj', body: 'İki Daikin kliması taktı, bakır boru işçiliği kusursuzdu. Markaya hakim.' },
+      { sub: 'demo-yorumcu-17', firstName: 'Seda', lastName: 'M.', rating: 5, daysAgo: 12, title: 'Mitsubishi bakım', body: 'Mitsubishi klimamın bakımını yaptı, çok titiz ve dakik biri.' },
+    ],
+  },
+  // ── 11) Telefon — TEK MARKA (Apple+Samsung), atölye, çok yorumlu + ÖDEME ─
+  {
+    sub: 'demo-kerem-aydin',
+    firstName: 'Kerem',
+    lastName: 'Aydın',
+    categorySlug: 'telefon',
+    district: 'Atakent',
+    ...atakumCoord(1.4, 130),
+    bio: 'Atakent’teki atölyemde yalnızca Apple ve Samsung cihazlara servis veriyorum. iPhone ekran/batarya ve Samsung anakart onarımında 10 yıllık deneyim; orijinal parça garantisi.',
+    emergency: 'Yok',
+    price: 'STARTING',
+    amount: 900,
+    yearsExperience: 10,
+    brands: ['Apple', 'Samsung'],
+    opensAt: '07:00',
+    closesAt: '20:00',
+    rating: 4.8,
+    reviewCount: 243,
+    responseMinutes: 8,
+    regions: [{ name: 'Atakum', approxKm: null }, { name: 'İlkadım', approxKm: 6 }],
+    payments: [
+      { amount: 3400, status: 'RELEASED', title: 'iPhone 13 ekran + batarya', daysAgo: 5, customerFirst: 'Yasin', customerLast: 'Ertaş', note: 'Ekran + batarya değişimi' },
+      { amount: 1650, status: 'RELEASED', title: 'Samsung S22 şarj soketi', daysAgo: 11, customerFirst: 'Pelin', customerLast: 'Aydemir' },
+    ],
+    named: [
+      { sub: 'demo-yorumcu-18', firstName: 'Emir', lastName: 'T.', rating: 5, daysAgo: 1, title: 'iPhone ekran', body: 'iPhone ekranımı orijinaliyle değişti, aynı gün teslim. Fiyatı da net söyledi.' },
+      { sub: 'demo-yorumcu-19', firstName: 'Buse', lastName: 'A.', rating: 5, daysAgo: 5, title: 'Samsung batarya', body: 'Samsung’a özel çalıştığı belli, çok bilgili. Bataryayı garantili taktı.' },
+    ],
+  },
+  // ── 12) Oto bakım — NİŞ detailing (seramik + PPF), Gtechniq+Gyeon + ÖDEME ─
+  {
+    sub: 'demo-baris-ozturk',
+    firstName: 'Barış',
+    lastName: 'Öztürk',
+    categorySlug: 'oto-bakim',
+    district: 'Denizevleri',
+    ...atakumCoord(2.0, 340),
+    bio: 'Oto detailing ve seramik/grafen kaplama uzmanıyım; yalnızca Gtechniq ve Gyeon ürünleriyle çalışıyorum. Denizevleri’ndeki atölyemde PPF boya koruma ve pasta cila yapıyorum, talep halinde mobil geliyorum.',
+    emergency: 'Yok',
+    price: 'STARTING',
+    amount: 3500,
+    yearsExperience: 7,
+    brands: ['Gtechniq', 'Gyeon'],
+    subServices: ['Seramik kaplama', 'Boya koruma (PPF)', 'Pasta cila'],
+    opensAt: '09:00',
+    closesAt: '19:00',
+    rating: 4.9,
+    reviewCount: 76,
+    responseMinutes: 20,
+    payments: [
+      { amount: 6500, status: 'RELEASED', title: 'Seramik kaplama (tüm araç)', daysAgo: 7, customerFirst: 'Tuncay', customerLast: 'Şeker', note: '9H seramik kaplama' },
+      { amount: 2800, status: 'SECURED', title: 'Pasta cila + iç detay', daysAgo: 1, customerFirst: 'Gökhan', customerLast: 'Uçar' },
+    ],
+    named: [
+      { sub: 'demo-yorumcu-20', firstName: 'Sinan', lastName: 'K.', rating: 5, daysAgo: 4, title: 'Seramik kaplama', body: 'Aracıma Gtechniq seramik yaptı, araba pırıl pırıl oldu. İşine aşık biri.' },
+      { sub: 'demo-yorumcu-21', firstName: 'Melis', lastName: 'D.', rating: 5, daysAgo: 10, title: 'PPF boya koruma', body: 'Ön kaputa PPF çekti, hiç kabarcık yok. Fiyatı hak ediyor.' },
+    ],
+  },
+  // ── 13) Oto bakım — genel mobil yıkama/detay (İncesu, ~2.6 km) ──────────
+  {
+    sub: 'demo-ugur-demirci',
+    firstName: 'Uğur',
+    lastName: 'Demirci',
+    categorySlug: 'oto-bakim',
+    district: 'İncesu',
+    ...atakumCoord(2.6, 160),
+    bio: 'Mobil oto yıkama ve iç detaylı temizlik yapıyorum; adresinize gelip aracınızı yıkıyorum. İncesu ve Atakum sahilinde pasta cila ve koltuk şampuanı hizmeti veriyorum.',
+    emergency: 'Var',
+    price: 'NEGOTIABLE',
+    yearsExperience: 6,
+    brands: ['Meguiars', '3M', 'CarPro'],
+    subServices: ['Mobil yıkama', 'İç detaylı temizlik', 'Pasta cila'],
+    opensAt: '08:00',
+    closesAt: '20:00',
+    rating: 4.7,
+    reviewCount: 134,
+    responseMinutes: 14,
+    named: [
+      { sub: 'demo-yorumcu-22', firstName: 'Kaan', lastName: 'B.', rating: 5, daysAgo: 2, title: 'Mobil yıkama', body: 'Kapıya geldi, aracı içi dışı tertemiz yaptı. Çok pratik.' },
+      { sub: 'demo-yorumcu-23', firstName: 'Ece', lastName: 'Y.', rating: 4, daysAgo: 8, title: 'İç detay temizlik', body: 'Koltukları şampuanladı, leke kalmadı. Biraz geç geldi ama iş güzel.' },
+    ],
+  },
+  // ── 14) Pet bakım — NİŞ köpek kuaförü, kadın usta, çok yorumlu + ÖDEME ──
+  {
+    sub: 'demo-elif-sahin',
+    firstName: 'Elif',
+    lastName: 'Şahin',
+    categorySlug: 'pet-bakim',
+    district: 'Güzelyalı',
+    ...atakumCoord(3.6, 210),
+    bio: 'Köpek kuaförüyüm; yalnızca köpek tıraşı, tırnak ve pati bakımı yapıyorum. Güzelyalı’daki salonuma getirebilir ya da evde bakım için çağırabilirsiniz. Küçük ırklarda ve yaşlı köpeklerde çok sabırlıyım.',
+    emergency: 'Yok',
+    price: 'STARTING',
+    amount: 400,
+    yearsExperience: 8,
+    brands: ['Andis', 'Wahl'],
+    subServices: ['Köpek tıraşı', 'Tırnak kesimi', 'Kulak / diş bakımı', 'Evde bakım'],
+    opensAt: '09:30',
+    closesAt: '19:00',
+    rating: 4.9,
+    reviewCount: 188,
+    responseMinutes: 11,
+    payments: [
+      { amount: 550, status: 'RELEASED', title: 'Pomeranian tıraş + tırnak', daysAgo: 4, customerFirst: 'Damla', customerLast: 'Kaya', note: 'Tıraş + tırnak + kulak' },
+      { amount: 480, status: 'RELEASED', title: 'Maltese evde bakım', daysAgo: 13, customerFirst: 'Berna', customerLast: 'Öz' },
+    ],
+    named: [
+      { sub: 'demo-yorumcu-24', firstName: 'İrem', lastName: 'A.', rating: 5, daysAgo: 2, title: 'Köpek tıraşı', body: 'Pomeranian’ımı çok güzel tıraş etti, köpeğim hiç strese girmedi. Ellerine sağlık.' },
+      { sub: 'demo-yorumcu-25', firstName: 'Ceren', lastName: 'B.', rating: 5, daysAgo: 6, title: 'Tırnak + pati bakımı', body: 'Yaşlı köpeğimin tırnaklarını sabırla kesti. Eve geldiği için çok rahat ettik.' },
+    ],
+  },
+  // ── 15) Güzellik — NİŞ evde bakım, kadın usta + ÖDEME (Mimarsinan) ──────
+  {
+    sub: 'demo-merve-yalcin',
+    firstName: 'Merve',
+    lastName: 'Yalçın',
+    categorySlug: 'guzellik',
+    district: 'Mimarsinan',
+    ...atakumCoord(1.7, 230),
+    bio: 'Evde güzellik ve bakım hizmeti veriyorum: manikür-pedikür, ağda ve cilt bakımı. Kendi steril malzememle Mimarsinan ve Atakum’daki adresinize geliyorum. Gelin ve özel gün paketlerim de var.',
+    emergency: 'Yok',
+    price: 'NEGOTIABLE',
+    yearsExperience: 9,
+    brands: ['OPI', 'Kodi'],
+    subServices: ['Manikür / pedikür', 'Ağda / epilasyon', 'Cilt bakımı'],
+    opensAt: '10:00',
+    closesAt: '20:00',
+    rating: 4.8,
+    reviewCount: 156,
+    responseMinutes: 13,
+    payments: [
+      { amount: 900, status: 'RELEASED', title: 'Manikür + ağda paketi', daysAgo: 5, customerFirst: 'Zehra', customerLast: 'Aksu', note: 'Evde bakım paketi' },
+    ],
+    named: [
+      { sub: 'demo-yorumcu-26', firstName: 'Gizem', lastName: 'T.', rating: 5, daysAgo: 1, title: 'Evde manikür', body: 'Eve geldi, kalıcı ojemi kusursuz yaptı. Malzemeleri çok hijyenik.' },
+      { sub: 'demo-yorumcu-27', firstName: 'Sevil', lastName: 'K.', rating: 4, daysAgo: 7, title: 'Ağda', body: 'Ağdada çok hızlı ve az acıtan bir teknik kullanıyor. Memnun kaldım.' },
+    ],
+  },
+  // ── 16) Tadilat — genel usta, geniş kapsam, acil (Aksu, ~4.5 km) ────────
+  {
+    sub: 'demo-serdar-kilic',
+    firstName: 'Serdar',
+    lastName: 'Kılıç',
+    categorySlug: 'tadilat',
+    district: 'Aksu',
+    ...atakumCoord(4.5, 300),
+    bio: 'Komple daire tadilatı yapıyorum: banyo-mutfak yenileme, alçıpan, fayans ve laminat parke. 18 yıllık ekibimle Aksu, Taflan ve Atakum genelinde anahtar teslim iş alıyorum.',
+    emergency: 'Var',
+    price: 'NEGOTIABLE',
+    yearsExperience: 18,
+    opensAt: '08:00',
+    closesAt: '19:00',
+    rating: 4.8,
+    reviewCount: 97,
+    responseMinutes: 24,
+    regions: [
+      { name: 'Atakum', approxKm: null },
+      { name: 'İlkadım', approxKm: 8 },
+      { name: 'Canik', approxKm: 14 },
+    ],
+    named: [
+      { sub: 'demo-yorumcu-28', firstName: 'Hakan', lastName: 'D.', rating: 5, daysAgo: 3, title: 'Banyo yenileme', body: 'Banyoyu komple yeniledi, işçilik ve temizlik on numara. Söz verdiği günde bitirdi.' },
+      { sub: 'demo-yorumcu-29', firstName: 'Nazlı', lastName: 'E.', rating: 4, daysAgo: 12, title: 'Mutfak tadilat', body: 'Mutfak dolabı ve fayansları değişti. Sonuç güzel, süreç biraz uzadı.' },
+    ],
+  },
+  // ── 17) Cam & balkon — uzman (Taflan, ~5.2 km) ──────────────────────────
+  {
+    sub: 'demo-metin-cakir',
+    firstName: 'Metin',
+    lastName: 'Çakır',
+    categorySlug: 'cam-balkon',
+    district: 'Taflan',
+    ...atakumCoord(5.2, 350),
+    bio: 'Cam balkon, PVC pencere ve sineklik montajı yapıyorum. Isıcamlı sürme sistemler ve katlanır cam balkonda uzmanım; Taflan ve Atakum sahil sitelerine montaj yapıyorum.',
+    emergency: 'Yok',
+    price: 'NEGOTIABLE',
+    yearsExperience: 12,
+    brands: ['Albert Genau', 'Winsa'],
+    subServices: ['Cam balkon', 'PVC pencere', 'Sineklik'],
+    opensAt: '08:30',
+    closesAt: '18:30',
+    rating: 4.7,
+    reviewCount: 64,
+    responseMinutes: 26,
+    named: [
+      { sub: 'demo-yorumcu-30', firstName: 'Volkan', lastName: 'S.', rating: 5, daysAgo: 4, title: 'Cam balkon', body: 'Balkonu katlanır camla kapattı, çok düzgün çalıştı. Ses ve toz kesildi.' },
+      { sub: 'demo-yorumcu-31', firstName: 'Aysun', lastName: 'M.', rating: 4, daysAgo: 15, title: 'PVC pencere', body: 'Pencereleri değişti, yalıtım iyi oldu. Randevuya birkaç gün geç kaldı.' },
+    ],
+  },
+  // ── 18) Mobilya montaj — IKEA kurulum uzmanı (Esenevler, ~3.0 km) ───────
+  {
+    sub: 'demo-onur-kaplan',
+    firstName: 'Onur',
+    lastName: 'Kaplan',
+    categorySlug: 'mobilya-montaj',
+    district: 'Esenevler',
+    ...atakumCoord(3.0, 50),
+    bio: 'Hazır mobilya kurulumu yapıyorum: IKEA, Bellona ve İstikbal gardırop, mutfak dolabı ve TV ünitesi montajı. Esenevler ve Atakum’da taşınma sonrası söküm-montaj da yapıyorum.',
+    emergency: 'Yok',
+    price: 'STARTING',
+    amount: 350,
+    yearsExperience: 7,
+    subServices: ['Gardırop / dolap', 'Mutfak dolabı', 'Raf / TV ünitesi', 'Söküm & taşıma montajı'],
+    opensAt: '09:00',
+    closesAt: '19:00',
+    rating: 4.9,
+    reviewCount: 112,
+    responseMinutes: 17,
+    named: [
+      { sub: 'demo-yorumcu-32', firstName: 'Barış', lastName: 'A.', rating: 5, daysAgo: 2, title: 'Gardırop montaj', body: 'IKEA gardırobumu bir saatte kurdu, hiç parça artmadı. Çok pratik ve temiz.' },
+      { sub: 'demo-yorumcu-33', firstName: 'Tuğçe', lastName: 'K.', rating: 5, daysAgo: 9, title: 'TV ünitesi', body: 'TV ünitesini duvara sağlam monte etti. İşini biliyor, tavsiye ederim.' },
+    ],
+  },
+  // ── 19) Bahçe & peyzaj — mevsimlik, bugün kapalı (Çatalçam, ~4.8 km) ────
+  {
+    sub: 'demo-kadir-toprak',
+    firstName: 'Kadir',
+    lastName: 'Toprak',
+    categorySlug: 'bahce',
+    district: 'Çatalçam',
+    ...atakumCoord(4.8, 60),
+    bio: 'Bahçe bakımı ve peyzaj düzenleme yapıyorum: çim biçme, ağaç budama ve otomatik sulama sistemi kurulumu. Çatalçam ve Atakum villa bölgelerinde mevsimlik bakım anlaşmaları yapıyorum.',
+    emergency: 'Yok',
+    price: 'NEGOTIABLE',
+    yearsExperience: 10,
+    brands: ['Husqvarna', 'Stihl'],
+    subServices: ['Çim biçme', 'Ağaç / çalı budama', 'Sulama sistemi'],
+    opensAt: '08:00',
+    closesAt: '18:00',
+    closedToday: true, // "Yarın uygun"
+    rating: 4.6,
+    reviewCount: 38,
+    responseMinutes: 28,
+    named: [
+      { sub: 'demo-yorumcu-34', firstName: 'Serkan', lastName: 'B.', rating: 5, daysAgo: 5, title: 'Çim biçme + budama', body: 'Bahçeyi baştan sona düzenledi, çimleri ve çalıları çok güzel kesti.' },
+      { sub: 'demo-yorumcu-35', firstName: 'Deniz', lastName: 'A.', rating: 4, daysAgo: 18, title: 'Sulama sistemi', body: 'Damla sulama kurdu, çalışıyor. Fiyatı biraz yüksekti ama iş sağlam.' },
+    ],
+  },
+  // ── 20) Halı yıkama — yeni/yorumsuz #2 (Yeşiltepe, ~2.2 km) ─────────────
+  {
+    sub: 'demo-selim-ates',
+    firstName: 'Selim',
+    lastName: 'Ateş',
+    categorySlug: 'hali-yikama',
+    district: 'Yeşiltepe',
+    ...atakumCoord(2.2, 280),
+    bio: 'Halı, koltuk ve perde yıkama hizmeti veriyorum. Atakum’da yeni açtım; adresten alıp yıkayıp teslim ediyorum, yerinde koltuk temizliği de yapıyorum.',
+    emergency: 'Yok',
+    price: 'NEGOTIABLE',
+    yearsExperience: 3,
+    opensAt: '09:00',
+    closesAt: '19:00',
+    rating: null, // yeni — hiç yorum yok
+    reviewCount: 0,
+    noGallery: true,
+    named: [],
   },
 ];
 
@@ -653,6 +1027,7 @@ async function main() {
     brands: await prisma.brand.count(),
     pros: await prisma.proProfile.count(),
     reviews: await prisma.review.count(),
+    payments: await prisma.payment.count(),
   };
   console.log('Seed tamam:', counts);
 }
@@ -697,6 +1072,22 @@ async function seedDemoPros() {
     skipDuplicates: true,
   });
 
+  // Uygulama içi ödeme müşterileri (kararlı sub → idempotent). Her ödeme
+  // kaydının kendi ödeme müşterisi olur; ustanın (müşteri,usta) tekilliği
+  // ve yorum müşterileriyle çakışma yaşanmaz.
+  await prisma.user.createMany({
+    data: demoPros.flatMap((p) =>
+      (p.payments ?? []).map((pay, idx) => ({
+        provider: 'GOOGLE' as const,
+        providerSub: `demo-odeme-${p.sub}-${idx}`,
+        email: `demo-odeme-${p.sub}-${idx}@ornek.iste`,
+        firstName: pay.customerFirst,
+        lastName: pay.customerLast,
+      })),
+    ),
+    skipDuplicates: true,
+  });
+
   for (const demo of demoPros) {
     const category = await prisma.category.findUnique({
       where: { slug: demo.categorySlug },
@@ -732,11 +1123,13 @@ async function seedDemoPros() {
         serviceMode,
         priceApproach: demo.price,
         priceAmount: demo.amount ?? null,
+        yearsExperience: demo.yearsExperience ?? null,
         latitude: demo.lat,
         longitude: demo.lng,
+        city: 'Samsun',
         district: demo.district,
         emergency: demo.emergency,
-        maxDistanceKm: 8,
+        maxDistanceKm: 12,
         verificationStatus: 'VERIFIED',
         isPublished: true,
       },
@@ -747,32 +1140,41 @@ async function seedDemoPros() {
         serviceMode,
         priceApproach: demo.price,
         priceAmount: demo.amount,
-        city: 'İstanbul',
+        yearsExperience: demo.yearsExperience,
+        city: 'Samsun',
         district: demo.district,
         emergency: demo.emergency,
         latitude: demo.lat,
         longitude: demo.lng,
-        maxDistanceKm: 8,
+        maxDistanceKm: 12,
         verificationStatus: 'VERIFIED',
         isPublished: true,
       },
     });
 
+    // Alt hizmet seçimi: demo.subServices verilmişse o alt küme, yoksa hepsi.
+    const chosenSubServices = demo.subServices
+      ? category.subServices.filter((s) => demo.subServices!.includes(s.name))
+      : category.subServices;
     await prisma.proProfileSubService.deleteMany({
       where: { proProfileId: profile.id },
     });
     await prisma.proProfileSubService.createMany({
-      data: category.subServices.map((s) => ({
+      data: chosenSubServices.map((s) => ({
         proProfileId: profile.id,
         subServiceId: s.id,
       })),
     });
 
+    // Marka uzmanlığı: demo.brands verilmişse o alt küme, yoksa hepsi.
+    const chosenBrands = demo.brands
+      ? category.brands.filter((b) => demo.brands!.includes(b.name))
+      : category.brands;
     await prisma.proProfileBrand.deleteMany({
       where: { proProfileId: profile.id },
     });
     await prisma.proProfileBrand.createMany({
-      data: category.brands.map((b) => ({
+      data: chosenBrands.map((b) => ({
         proProfileId: profile.id,
         brandId: b.id,
       })),
@@ -798,13 +1200,9 @@ async function seedDemoPros() {
     await prisma.proRegion.deleteMany({
       where: { proProfileId: profile.id },
     });
-    // Prototip 38: Kadıköy merkez, Ataşehir ~5 km, Üsküdar ~7 km.
+    // Hizmet bölgeleri: demo.regions verilmişse o, yoksa Atakum varsayılanı.
     await prisma.proRegion.createMany({
-      data: [
-        { name: 'Kadıköy', approxKm: null },
-        { name: 'Ataşehir', approxKm: 5 },
-        { name: 'Üsküdar', approxKm: 7 },
-      ].map((r) => ({
+      data: (demo.regions ?? DEFAULT_REGIONS).map((r) => ({
         proProfileId: profile.id,
         name: r.name,
         approxKm: r.approxKm,
@@ -827,6 +1225,102 @@ async function seedDemoPros() {
     }
 
     await seedDemoReviews(demo, profile.id, user.id, bulkCustomers, category);
+    await seedDemoPayments(demo, profile.id, user.id);
+  }
+}
+
+/**
+ * Uygulama içi ödeme geçmişi. Her ödeme kendi Conversation → ServiceRecord
+ * (COMPLETED) → Payment (+ PaymentEvent zaman çizgisi) zincirini kurar.
+ * Kazanç ekranı RELEASED (aktarıldı) + SECURED (güvencede) toplamlarını
+ * requestedByUserId=usta üzerinden okur; komisyon %2 ustadan kesilir.
+ */
+async function seedDemoPayments(
+  demo: DemoPro,
+  proProfileId: string,
+  proUserId: string,
+) {
+  if (!demo.payments || demo.payments.length === 0) return;
+
+  const paymentCustomers = await prisma.user.findMany({
+    where: { providerSub: { startsWith: `demo-odeme-${demo.sub}-` } },
+    select: { id: true, providerSub: true },
+  });
+
+  const now = Date.now();
+  const DAY = 86_400_000;
+
+  for (const [idx, pay] of demo.payments.entries()) {
+    const customer = paymentCustomers.find(
+      (c) => c.providerSub === `demo-odeme-${demo.sub}-${idx}`,
+    );
+    if (!customer) continue;
+
+    const commissionAmount = Math.round(pay.amount * 0.02 * 100) / 100;
+    const netAmount = Math.round((pay.amount - commissionAmount) * 100) / 100;
+    const paidAt = new Date(now - pay.daysAgo * DAY);
+    const requestedAt = new Date(paidAt.getTime() - 30 * 60_000);
+
+    const conversationId = randomUUID();
+    const recordId = randomUUID();
+    const paymentId = randomUUID();
+
+    await prisma.conversation.create({
+      data: {
+        id: conversationId,
+        customerId: customer.id,
+        proProfileId,
+        createdAt: new Date(paidAt.getTime() - DAY),
+        lastMessageAt: paidAt,
+      },
+    });
+    await prisma.serviceRecord.create({
+      data: {
+        id: recordId,
+        conversationId,
+        status: 'COMPLETED',
+        title: pay.title,
+        agreedAmount: pay.amount,
+        createdAt: new Date(paidAt.getTime() - DAY),
+      },
+    });
+    await prisma.payment.create({
+      data: {
+        id: paymentId,
+        conversationId,
+        serviceRecordId: recordId,
+        requestedByUserId: proUserId,
+        paidByUserId: customer.id,
+        amount: pay.amount,
+        commissionRate: 0.02,
+        commissionAmount,
+        netAmount,
+        note: pay.note ?? null,
+        status: pay.status,
+        providerRef: `demo-${paymentId.slice(0, 8)}`,
+        createdAt: requestedAt,
+        updatedAt: paidAt,
+      },
+    });
+
+    // Ödeme durumu zaman çizgisi (ödeme detayında görünür).
+    const events: Array<{
+      status: 'REQUESTED' | 'SECURED' | 'RELEASED';
+      at: Date;
+    }> = [
+      { status: 'REQUESTED', at: requestedAt },
+      { status: 'SECURED', at: paidAt },
+    ];
+    if (pay.status === 'RELEASED') {
+      events.push({ status: 'RELEASED', at: new Date(paidAt.getTime() + DAY) });
+    }
+    await prisma.paymentEvent.createMany({
+      data: events.map((e) => ({
+        paymentId,
+        status: e.status,
+        createdAt: e.at,
+      })),
+    });
   }
 }
 
@@ -854,6 +1348,7 @@ async function seedDemoReviews(
         OR: [
           { providerSub: { startsWith: 'demo-musteri-' } },
           { providerSub: { startsWith: 'demo-yorumcu-' } },
+          { providerSub: { startsWith: 'demo-odeme-' } },
         ],
       },
     },
