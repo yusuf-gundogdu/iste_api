@@ -237,7 +237,7 @@ const demoPros: DemoPro[] = [
   },
   {
     sub: 'demo-ayse-yildiz',
-    firstName: 'Ayşe',
+    firstName: 'Hasan',
     lastName: 'Yıldız',
     categorySlug: 'su-tesisati',
     district: 'Moda',
@@ -281,7 +281,7 @@ const demoPros: DemoPro[] = [
   },
   {
     sub: 'demo-selin-demir',
-    firstName: 'Selin',
+    firstName: 'Serkan',
     lastName: 'Demir',
     categorySlug: 'boya',
     district: 'Feneryolu',
@@ -350,7 +350,7 @@ const demoPros: DemoPro[] = [
   // CATS'te Tadilat olmadığı için en yakın kategori Marangoz'a bağlandı.
   {
     sub: 'demo-yagmur-aslan',
-    firstName: 'Yağmur',
+    firstName: 'Yavuz',
     lastName: 'Aslan',
     categorySlug: 'marangoz',
     district: 'Caferağa',
