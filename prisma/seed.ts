@@ -1004,7 +1004,7 @@ async function main() {
   });
 
   // Demo giriş hesabı (login ekranındaki "Demo ile giriş" butonu).
-  await prisma.user.upsert({
+  const demoUser = await prisma.user.upsert({
     where: {
       provider_providerSub: {
         provider: 'GOOGLE',
@@ -1020,6 +1020,10 @@ async function main() {
       lastName: 'Kullanıcı',
     },
   });
+
+  // "İki mod tek hesap": demo giriş hesabına dolu bir USTA vitrini bağlanır,
+  // böylece aynı hesap hem müşteri hem usta modunda uçtan uca test edilir.
+  await seedDemoKullaniciPro(demoUser.id);
 
   const counts = {
     categories: await prisma.category.count(),
@@ -1501,6 +1505,322 @@ async function seedDemoReviews(
           ),
         },
       ],
+    });
+  }
+}
+
+/**
+ * Demo giriş hesabına (demo-kullanici) bağlı YAYINLANMIŞ, DOLU bir usta
+ * vitrini. "İki mod tek hesap" felsefesi: aynı hesap hem MÜŞTERİ hem USTA
+ * modunda uçtan uca test edilir. Yalnız usta tarafını EKLER — müşteri
+ * senaryolarındaki veriye (favoriler, adresler, Okan ile sohbet/ödeme/yorum)
+ * DOKUNMAZ; o veride demo-kullanici müşteridir (proProfileId farklı).
+ *
+ * Gelen işlerin müşterileri `demo-kullanici-isi-*` prefixiyle ayrılır;
+ * idempotent temizlik yalnız bu prefixe ve bu ustanın profiline göre yapılır.
+ */
+async function seedDemoKullaniciPro(demoUserId: string) {
+  const category = await prisma.category.findUnique({
+    where: { slug: 'elektrik' },
+    include: { subServices: true, brands: true },
+  });
+  if (!category) return;
+
+  // İş örneği görselleri diske yazılır (idempotent — aynı 4 webp).
+  const galleryUrls = await seedGalleryImages();
+
+  const coord = atakumCoord(0.6, 45); // Atakum merkez civarı (~41.32 / 36.33)
+  const bio =
+    'Atakum ve Samsun genelinde 9 yıldır elektrik işleri yapıyorum. ' +
+    'Sigorta/pano yenileme, priz-anahtar, aydınlatma ve arıza tespitinde ' +
+    'hızlı ve temiz çözüm sunarım. Denizevleri, Mimarsinan ve Körfez ' +
+    'hattına aynı gün gelebiliyorum; acil çağrılara da bakıyorum.';
+
+  const profile = await prisma.proProfile.upsert({
+    where: { userId: demoUserId },
+    update: {
+      mainCategoryId: category.id,
+      bio,
+      serviceMode: 'ON_SITE',
+      priceApproach: 'STARTING',
+      priceAmount: 250,
+      yearsExperience: 9,
+      latitude: coord.lat,
+      longitude: coord.lng,
+      city: 'Samsun',
+      district: 'Denizevleri',
+      emergency: 'Var',
+      maxDistanceKm: 12,
+      verificationStatus: 'VERIFIED',
+      isPublished: true,
+    },
+    create: {
+      userId: demoUserId,
+      mainCategoryId: category.id,
+      bio,
+      serviceMode: 'ON_SITE',
+      priceApproach: 'STARTING',
+      priceAmount: 250,
+      yearsExperience: 9,
+      latitude: coord.lat,
+      longitude: coord.lng,
+      city: 'Samsun',
+      district: 'Denizevleri',
+      emergency: 'Var',
+      maxDistanceKm: 12,
+      verificationStatus: 'VERIFIED',
+      isPublished: true,
+    },
+  });
+
+  // Alt hizmetler (elektrik: Priz / anahtar, Aydınlatma, Pano, Arıza).
+  const chosenSubs = category.subServices.filter((s) =>
+    ['Priz / anahtar', 'Aydınlatma', 'Pano', 'Arıza'].includes(s.name),
+  );
+  await prisma.proProfileSubService.deleteMany({
+    where: { proProfileId: profile.id },
+  });
+  await prisma.proProfileSubService.createMany({
+    data: chosenSubs.map((s) => ({
+      proProfileId: profile.id,
+      subServiceId: s.id,
+    })),
+  });
+
+  // Marka uzmanlığı (Schneider, Legrand, Viko).
+  const chosenBrands = category.brands.filter((b) =>
+    ['Schneider', 'Legrand', 'Viko'].includes(b.name),
+  );
+  await prisma.proProfileBrand.deleteMany({
+    where: { proProfileId: profile.id },
+  });
+  await prisma.proProfileBrand.createMany({
+    data: chosenBrands.map((b) => ({ proProfileId: profile.id, brandId: b.id })),
+  });
+
+  // Hizmet bölgeleri (Atakum mahalleleri + merkez).
+  await prisma.proRegion.deleteMany({ where: { proProfileId: profile.id } });
+  await prisma.proRegion.createMany({
+    data: [
+      { proProfileId: profile.id, name: 'Denizevleri', approxKm: 1.2 },
+      { proProfileId: profile.id, name: 'Mimarsinan', approxKm: 2.0 },
+      { proProfileId: profile.id, name: 'Körfez', approxKm: 0.9 },
+      { proProfileId: profile.id, name: 'Atakum', approxKm: null },
+    ],
+  });
+
+  // Çalışma saatleri: Pzt–Cmt 09:00–19:00 açık, Pazar (7) kapalı.
+  await prisma.workingHour.deleteMany({ where: { proProfileId: profile.id } });
+  await prisma.workingHour.createMany({
+    data: [1, 2, 3, 4, 5, 6, 7].map((day) => ({
+      proProfileId: profile.id,
+      dayOfWeek: day,
+      isOpen: day !== 7,
+      opensAt: '09:00',
+      closesAt: '19:00',
+    })),
+  });
+
+  // Galeri (mevcut demo-work-N.webp iş görselleri).
+  await prisma.proGalleryImage.deleteMany({
+    where: { proProfileId: profile.id },
+  });
+  await prisma.proGalleryImage.createMany({
+    data: galleryUrls.map((url, i) => ({
+      proProfileId: profile.id,
+      url,
+      title: GALLERY_TITLES[i],
+      sortOrder: i,
+    })),
+  });
+
+  // Hizmet & fiyat kartları (prototip proServices — aktif/pasif toggle'lı).
+  await prisma.proService.deleteMany({ where: { proProfileId: profile.id } });
+  await prisma.proService.createMany({
+    data: [
+      {
+        proProfileId: profile.id,
+        title: 'Sigorta / otomat değişimi',
+        mode: 'Yerinde',
+        priceType: 'Başlangıç',
+        priceAmount: 250,
+        sortOrder: 0,
+      },
+      {
+        proProfileId: profile.id,
+        title: 'Avize / aplik montajı',
+        mode: 'Yerinde',
+        priceType: 'Sabit fiyat',
+        priceAmount: 400,
+        sortOrder: 1,
+      },
+      {
+        proProfileId: profile.id,
+        title: 'Genel elektrik arıza tespiti',
+        mode: 'Yerinde',
+        priceType: 'Fiyat konuşulur',
+        priceAmount: null,
+        sortOrder: 2,
+      },
+    ],
+  });
+
+  // Doğrulama belgeleri: kimlik APPROVED, ustalık IN_REVIEW, kalan ikisi
+  // MISSING → doğrulama ekranı karışık durum gösterir (upsert: docType unique).
+  const docs: Array<{
+    docType: string;
+    title: string;
+    status: string;
+    url: string | null;
+  }> = [
+    { docType: 'identity', title: 'Kimlik doğrulama', status: 'APPROVED', url: '/uploads/demo-work-1.webp' },
+    { docType: 'mastery', title: 'Ustalık belgesi', status: 'IN_REVIEW', url: '/uploads/demo-work-2.webp' },
+    { docType: 'license', title: 'Doğalgaz yetki belgesi', status: 'MISSING', url: null },
+    { docType: 'address-tax', title: 'Adres / vergi bilgisi', status: 'MISSING', url: null },
+  ];
+  for (const d of docs) {
+    await prisma.proDocument.upsert({
+      where: {
+        proProfileId_docType: { proProfileId: profile.id, docType: d.docType },
+      },
+      update: { title: d.title, status: d.status, url: d.url },
+      create: {
+        proProfileId: profile.id,
+        docType: d.docType,
+        title: d.title,
+        status: d.status,
+        url: d.url,
+      },
+    });
+  }
+
+  // ── Gelen işler + kazanç (demo-kullanici USTA olarak) ──────────────────
+  // Her iş: ayrı demo müşteri → Conversation → ServiceRecord(COMPLETED)
+  // → Payment (%2 komisyon ustadan) → PaymentEvent zaman çizgisi → Review.
+  // En az 1 RELEASED (aktarıldı) + 1 SECURED (güvencede).
+  const incomingJobs: Array<{
+    customerFirst: string;
+    customerLast: string;
+    title: string;
+    amount: number;
+    status: 'RELEASED' | 'SECURED';
+    daysAgo: number;
+    rating: number;
+    body: string;
+  }> = [
+    { customerFirst: 'Bülent', customerLast: 'Aksoy', title: 'Sigorta panosu yenileme', amount: 1200, status: 'RELEASED', daysAgo: 6, rating: 5, body: 'Panoyu baştan sona yeniledi, kaçak akım rölesi de taktı. Temiz ve güvenli iş çıkardı.' },
+    { customerFirst: 'Sibel', customerLast: 'Karaca', title: 'Salon avize + spot montajı', amount: 1600, status: 'RELEASED', daysAgo: 12, rating: 5, body: 'Salon avizesini ve spotları çok düzgün monte etti. Kablo işçiliği kusursuz.' },
+    { customerFirst: 'Erhan', customerLast: 'Bozkurt', title: 'Kaçak akım arıza tespiti', amount: 850, status: 'SECURED', daysAgo: 2, rating: 4, body: 'Arızayı hızlı buldu ve çözdü. Biraz geç geldi ama işini biliyor.' },
+  ];
+
+  // Gelen iş müşterileri (kararlı sub → idempotent).
+  await prisma.user.createMany({
+    data: incomingJobs.map((j, i) => ({
+      provider: 'GOOGLE' as const,
+      providerSub: `demo-kullanici-isi-${i}`,
+      email: `demo-kullanici-isi-${i}@ornek.iste`,
+      firstName: j.customerFirst,
+      lastName: j.customerLast,
+    })),
+    skipDuplicates: true,
+  });
+  const jobCustomers = await prisma.user.findMany({
+    where: { providerSub: { startsWith: 'demo-kullanici-isi-' } },
+    select: { id: true, providerSub: true },
+  });
+
+  // İdempotens: bu ustanın gelen-iş sohbetleri silinir (cascade: hizmet
+  // kaydı + ödeme + yorum + mesaj). demo-kullanici'nin MÜŞTERİ sohbetleri
+  // (Okan vb.) etkilenmez — onlarda proProfileId bu profile ait değildir.
+  await prisma.conversation.deleteMany({
+    where: {
+      proProfileId: profile.id,
+      customer: { providerSub: { startsWith: 'demo-kullanici-isi-' } },
+    },
+  });
+
+  const now = Date.now();
+  const DAY = 86_400_000;
+  for (const [idx, job] of incomingJobs.entries()) {
+    const customer = jobCustomers.find(
+      (c) => c.providerSub === `demo-kullanici-isi-${idx}`,
+    );
+    if (!customer) continue;
+
+    const commissionAmount = Math.round(job.amount * 0.02 * 100) / 100;
+    const netAmount = Math.round((job.amount - commissionAmount) * 100) / 100;
+    const paidAt = new Date(now - job.daysAgo * DAY);
+    const requestedAt = new Date(paidAt.getTime() - 30 * 60_000);
+
+    const conversationId = randomUUID();
+    const recordId = randomUUID();
+    const paymentId = randomUUID();
+
+    await prisma.conversation.create({
+      data: {
+        id: conversationId,
+        customerId: customer.id,
+        proProfileId: profile.id,
+        createdAt: new Date(paidAt.getTime() - DAY),
+        lastMessageAt: paidAt,
+      },
+    });
+    await prisma.serviceRecord.create({
+      data: {
+        id: recordId,
+        conversationId,
+        status: 'COMPLETED',
+        title: job.title,
+        agreedAmount: job.amount,
+        createdAt: new Date(paidAt.getTime() - DAY),
+      },
+    });
+    await prisma.payment.create({
+      data: {
+        id: paymentId,
+        conversationId,
+        serviceRecordId: recordId,
+        requestedByUserId: demoUserId,
+        paidByUserId: customer.id,
+        amount: job.amount,
+        commissionRate: 0.02,
+        commissionAmount,
+        netAmount,
+        status: job.status,
+        providerRef: `demo-${paymentId.slice(0, 8)}`,
+        createdAt: requestedAt,
+        updatedAt: paidAt,
+      },
+    });
+
+    const events: Array<{
+      status: 'REQUESTED' | 'SECURED' | 'RELEASED';
+      at: Date;
+    }> = [
+      { status: 'REQUESTED', at: requestedAt },
+      { status: 'SECURED', at: paidAt },
+    ];
+    if (job.status === 'RELEASED') {
+      events.push({ status: 'RELEASED', at: new Date(paidAt.getTime() + DAY) });
+    }
+    await prisma.paymentEvent.createMany({
+      data: events.map((e) => ({ paymentId, status: e.status, createdAt: e.at })),
+    });
+
+    // Yorum: kazanç ekranında "Doğrulanmış işlem" + usta panelinde puan.
+    await prisma.review.create({
+      data: {
+        serviceRecordId: recordId,
+        proProfileId: profile.id,
+        customerId: customer.id,
+        rating: job.rating,
+        communication: job.rating,
+        punctuality: job.rating,
+        workmanship: job.rating,
+        body: job.body,
+        isVerified: true,
+        createdAt: paidAt,
+      },
     });
   }
 }
