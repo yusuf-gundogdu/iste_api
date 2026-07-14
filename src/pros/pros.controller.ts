@@ -17,6 +17,7 @@ import {
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -133,6 +134,7 @@ class MaxDistanceDto {
 class WorkingHourDto {
   @IsNumber()
   @Min(1)
+  @Max(7)
   dayOfWeek: number;
 
   @IsBoolean()
