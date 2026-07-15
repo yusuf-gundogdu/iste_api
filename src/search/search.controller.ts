@@ -1,6 +1,13 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsNumber, IsString, Max, Min, MinLength } from 'class-validator';
+import {
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  MinLength,
+} from 'class-validator';
 import { SearchService } from './search.service';
 
 class SearchQueryDto {
@@ -19,6 +26,19 @@ class SearchQueryDto {
   @Min(-180)
   @Max(180)
   lng: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(100)
+  limit?: number = 50;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  offset?: number = 0;
 }
 
 @Controller('search')
@@ -27,6 +47,12 @@ export class SearchController {
 
   @Get()
   run(@Query() query: SearchQueryDto) {
-    return this.search.search(query.q, query.lat, query.lng);
+    return this.search.search(
+      query.q,
+      query.lat,
+      query.lng,
+      query.limit,
+      query.offset,
+    );
   }
 }

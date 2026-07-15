@@ -147,6 +147,7 @@ export class ProsService {
              ))
       ORDER BY "distanceKm" ASC
       LIMIT ${query.limit ?? 50}
+      OFFSET ${query.offset ?? 0}
     `);
 
     return rows.map((row) => ({

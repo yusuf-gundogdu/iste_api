@@ -68,6 +68,37 @@ describe('Discover (e2e)', () => {
     );
   });
 
+  it('limit + offset ile sayfalama: ikinci sayfa farklı ustalar döner', async () => {
+    const page1 = await request(app.getHttpServer())
+      .get(`${base}&limit=3&offset=0`)
+      .expect(200);
+    const page2 = await request(app.getHttpServer())
+      .get(`${base}&limit=3&offset=3`)
+      .expect(200);
+
+    const items1 = page1.body as DiscoverItem[];
+    const items2 = page2.body as DiscoverItem[];
+    expect(items1.length).toBeLessThanOrEqual(3);
+    // İki sayfa çakışmaz (mesafe sıralı, disjoint pencereler).
+    const names1 = new Set(items1.map((i) => i.displayName));
+    expect(items2.every((i) => !names1.has(i.displayName))).toBe(true);
+
+    // Sayfalar birleşince parametresiz (ilk sayfa) sonuçla aynı sırayı verir.
+    const all = await request(app.getHttpServer()).get(base).expect(200);
+    const allItems = all.body as DiscoverItem[];
+    const combined = [...items1, ...items2].map((i) => i.displayName);
+    expect(allItems.slice(0, combined.length).map((i) => i.displayName)).toEqual(
+      combined,
+    );
+  });
+
+  it('offset dizinin ötesinde boş liste döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`${base}&offset=9999`)
+      .expect(200);
+    expect(res.body as DiscoverItem[]).toHaveLength(0);
+  });
+
   it('geçersiz koordinat 400 döner', async () => {
     await request(app.getHttpServer())
       .get('/api/v1/pros/discover?lat=999&lng=29')

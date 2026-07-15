@@ -34,4 +34,10 @@ export class DiscoverQueryDto {
   @Min(1)
   @Max(100)
   limit?: number = 50;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  offset?: number = 0;
 }

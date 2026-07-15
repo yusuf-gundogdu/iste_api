@@ -88,6 +88,35 @@ describe('Search (e2e)', () => {
     expect(body.pros.some((p) => p.displayName.includes('Mehmet'))).toBe(true);
   });
 
+  it('limit + offset ile sayfalama: sayfalar çakışmaz', async () => {
+    // 'kombi' kategorisi seed'de birden çok usta içerir.
+    const all = await request(app.getHttpServer())
+      .get(`${base}&q=kombi`)
+      .expect(200);
+    const total = (all.body as SearchResponse).pros.length;
+    expect(total).toBeGreaterThanOrEqual(2);
+
+    const page1 = await request(app.getHttpServer())
+      .get(`${base}&q=kombi&limit=1&offset=0`)
+      .expect(200);
+    const page2 = await request(app.getHttpServer())
+      .get(`${base}&q=kombi&limit=1&offset=1`)
+      .expect(200);
+
+    const pros1 = (page1.body as SearchResponse).pros;
+    const pros2 = (page2.body as SearchResponse).pros;
+    expect(pros1).toHaveLength(1);
+    expect(pros2).toHaveLength(1);
+    expect(pros1[0].displayName).not.toEqual(pros2[0].displayName);
+  });
+
+  it('offset dizinin ötesinde boş usta listesi döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`${base}&q=kombi&offset=9999`)
+      .expect(200);
+    expect((res.body as SearchResponse).pros).toHaveLength(0);
+  });
+
   it('kısa sorgu 400 döner', async () => {
     await request(app.getHttpServer()).get(`${base}&q=a`).expect(400);
   });

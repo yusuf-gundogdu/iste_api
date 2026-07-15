@@ -39,7 +39,13 @@ export class SearchService {
    * Derin arama: usta adı, kategori, alt hizmet ve marka eşleşmeleri.
    * "İlgili hizmetler" chip'leri + mesafe sıralı usta listesi döner.
    */
-  async search(q: string, lat: number, lng: number) {
+  async search(
+    q: string,
+    lat: number,
+    lng: number,
+    limit = 50,
+    offset = 0,
+  ) {
     const term = `%${q.trim()}%`;
     const isoDow = ((new Date().getDay() + 6) % 7) + 1;
 
@@ -140,7 +146,8 @@ export class SearchService {
             )
           )
         ORDER BY p.id, "distanceKm" ASC
-        LIMIT 50
+        LIMIT ${limit}
+        OFFSET ${offset}
       `),
     ]);
 
