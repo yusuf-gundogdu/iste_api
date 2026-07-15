@@ -11,11 +11,16 @@ type NotificationType =
   | 'VERIFICATION_RESULT';
 
 /**
- * Push gönderici soyutlaması. FCM anahtarları (google-services) eklenince
- * FirebasePushSender yazılır; şimdilik log. DB bildirimi her durumda kalıcı.
+ * Push gönderici soyutlaması. userId + başlık/gövde (+ opsiyonel data) alır;
+ * userId→cihaz token çözümü sender içinde yapılır. DB bildirimi her durumda kalıcı.
  */
 export abstract class PushSender {
-  abstract send(userId: string, title: string, body: string): Promise<void>;
+  abstract send(
+    userId: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<void>;
 }
 
 @Injectable()
@@ -29,6 +34,8 @@ export class ConsolePushSender extends PushSender {
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger('Notifications');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly push: PushSender,
@@ -52,10 +59,31 @@ export class NotificationsService {
       },
     });
     try {
-      await this.push.send(input.userId, input.title, input.body);
-    } catch {
+      await this.push.send(
+        input.userId,
+        input.title,
+        input.body,
+        input.data,
+      );
+    } catch (err) {
       // push başarısızlığı sessiz geçilir; DB bildirimi yeterli.
+      this.logger.warn(
+        `Push gönderilemedi (${input.userId}): ${String(err)}`,
+      );
     }
+  }
+
+  /**
+   * FCM cihaz token'ını kaydeder/günceller. Token global tekildir; başka
+   * kullanıcıya bağlıysa (cihaz el değiştirdi / yeniden giriş) userId güncellenir.
+   */
+  async registerDeviceToken(userId: string, token: string, platform: string) {
+    await this.prisma.deviceToken.upsert({
+      where: { token },
+      create: { userId, token, platform },
+      update: { userId, platform },
+    });
+    return { ok: true };
   }
 
   list(userId: string) {

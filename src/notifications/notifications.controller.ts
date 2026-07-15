@@ -1,6 +1,14 @@
-import { Controller, Delete, Get, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { CurrentUser, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { JwtPayload } from '../auth/auth.service';
+import { RegisterDeviceTokenDto } from './dto/register-device-token.dto';
 import { NotificationsService } from './notifications.service';
 
 @Controller('notifications')
@@ -27,5 +35,18 @@ export class NotificationsController {
   @Post('read-all')
   markAllRead(@CurrentUser() user: JwtPayload) {
     return this.notifications.markAllRead(user.sub);
+  }
+
+  /** FCM cihaz token'ını kaydeder/günceller (mobil push için). */
+  @Post('device-token')
+  registerDeviceToken(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: RegisterDeviceTokenDto,
+  ) {
+    return this.notifications.registerDeviceToken(
+      user.sub,
+      dto.token,
+      dto.platform,
+    );
   }
 }

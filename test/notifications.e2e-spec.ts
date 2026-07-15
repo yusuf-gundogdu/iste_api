@@ -63,6 +63,7 @@ describe('Notifications (e2e)', () => {
 
   afterAll(async () => {
     await prisma.notification.deleteMany({ where: { userId: proUserId } });
+    await prisma.deviceToken.deleteMany({ where: { userId: proUserId } });
     await prisma.user.deleteMany({ where: { providerSub: customerSub } });
     await app.close();
   });
@@ -115,5 +116,51 @@ describe('Notifications (e2e)', () => {
       .expect(200);
     const items = list.body as Array<{ type: string }>;
     expect(items.every((n) => n.type !== 'NEW_CONVERSATION')).toBe(true);
+  });
+
+  describe('device-token', () => {
+    const token = 'fcm-e2e-token-abc123';
+
+    it('auth olmadan reddedilir', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/notifications/device-token')
+        .send({ token, platform: 'ios' })
+        .expect(401);
+    });
+
+    it('geçersiz platform reddedilir', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/notifications/device-token')
+        .set('Authorization', `Bearer ${proToken}`)
+        .send({ token, platform: 'web' })
+        .expect(400);
+    });
+
+    it('token kaydeder (upsert)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/notifications/device-token')
+        .set('Authorization', `Bearer ${proToken}`)
+        .send({ token, platform: 'ios' })
+        .expect(201);
+      expect((res.body as { ok: boolean }).ok).toBe(true);
+
+      const rows = await prisma.deviceToken.findMany({ where: { token } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].userId).toBe(proUserId);
+      expect(rows[0].platform).toBe('ios');
+    });
+
+    it('aynı token tekrar gönderilince günceller, çoğaltmaz', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/notifications/device-token')
+        .set('Authorization', `Bearer ${proToken}`)
+        .send({ token, platform: 'android' })
+        .expect(201);
+
+      const rows = await prisma.deviceToken.findMany({ where: { token } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].platform).toBe('android');
+      expect(rows[0].userId).toBe(proUserId);
+    });
   });
 });
