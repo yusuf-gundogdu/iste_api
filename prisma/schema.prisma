@@ -84,6 +84,7 @@ model ProProfile {
   isOnline           Boolean            @default(true) // panel çevrimiçi/çevrimdışı toggle (prototip)
   bankName           String? // aktarım hesabı (prototip payoutReq)
   iban               String?
+  subMerchantKey     String? // iyzico Pazaryeri alt üye işyeri anahtarı (escrow)
   priceNote          String? // fiyat yaklaşımı notu (prototip editProfile)
   maxDistanceKm      Int? // hizmet bölgesi maksimum mesafe (prototip proRegions)
   latitude           Float?

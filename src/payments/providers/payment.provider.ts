@@ -10,13 +10,36 @@ export interface CheckoutSession {
   providerRef: string;
 }
 
+/** Ustayı iyzico Pazaryeri alt üye işyeri (subMerchant) yapmak için gerekenler. */
+export interface SubMerchantInput {
+  /** Uygulama tarafı sabit kimlik (usta userId) — iyzico eşlemesi. */
+  externalId: string;
+  name: string;
+  contactName: string;
+  contactSurname: string;
+  iban: string;
+  /** TC kimlik no (PERSONAL alt üye zorunlu). */
+  identityNumber: string;
+  gsmNumber: string;
+  email: string;
+  address: string;
+}
+
 export abstract class PaymentProvider {
+  /**
+   * Ustayı ödeme sağlayıcıda alt üye işyeri (escrow alıcısı) olarak kaydeder;
+   * saklanacak subMerchantKey döner. Marketplace olmayan sağlayıcıda `null`.
+   */
+  abstract ensureSubMerchant(input: SubMerchantInput): Promise<string | null>;
+
   /** Ödeme oturumu başlatır (müşteri "Güvenli Ödeme Yap" dedi). */
   abstract initCheckout(input: {
     paymentId: string;
     amount: number;
     buyerId: string;
     callbackUrl: string;
+    /** Escrow: ustanın alt üye anahtarı + ustaya düşecek net tutar. */
+    subMerchant?: { key: string; netAmount: number };
   }): Promise<CheckoutSession>;
 
   /** Callback sonrası ödemeyi doğrular (başarılı mı?). */
@@ -32,9 +55,10 @@ export abstract class PaymentProvider {
     providerRef: string;
   }): Promise<void>;
 
-  /** İadeyi gerçekleştirir. */
+  /** İadeyi gerçekleştirir (iyzico iade için tutarı zorunlu ister). */
   abstract refund(input: {
     paymentId: string;
     providerRef: string;
+    amount: number;
   }): Promise<void>;
 }

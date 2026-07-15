@@ -124,6 +124,49 @@ export class PaymentsService {
     return this.serialize(payment.id);
   }
 
+  /**
+   * Escrow için ustayı iyzico alt üye işyeri olarak hazırlar.
+   * subMerchantKey ProProfile'da bir kez üretilip saklanır (idempotent).
+   * Sahte sağlayıcıda ya da usta IBAN'ı yoksa `undefined` döner — o zaman
+   * ödeme marketplace kırılımı olmadan yürür (dev/mock akışı bozulmaz).
+   *
+   * NOT: gsmNumber/identityNumber üretimde gerçek usta KYC'sinden gelmelidir;
+   * demoda sandbox-güvenli sabitler kullanılır.
+   */
+  private async resolveSubMerchant(
+    ustaUserId: string,
+    netAmount: number,
+  ): Promise<{ key: string; netAmount: number } | undefined> {
+    const usta = await this.prisma.proProfile.findUnique({
+      where: { userId: ustaUserId },
+      include: { user: true },
+    });
+    if (!usta?.iban) return undefined;
+
+    let key = usta.subMerchantKey;
+    if (!key) {
+      const adres = [usta.district, usta.city].filter(Boolean).join(', ');
+      key = await this.provider.ensureSubMerchant({
+        externalId: ustaUserId,
+        name: `${usta.user.firstName ?? 'İŞTE'} ${usta.user.lastName ?? 'Usta'}`,
+        contactName: usta.user.firstName ?? 'İŞTE',
+        contactSurname: usta.user.lastName ?? 'Usta',
+        iban: usta.iban,
+        identityNumber: '11111111111', // TODO(üretim): gerçek TC (KYC)
+        gsmNumber: '+905350000000', //   TODO(üretim): gerçek telefon (KYC)
+        email: usta.user.email ?? 'usta@iste.app',
+        address: adres.length >= 5 ? adres : 'Atakum, Samsun',
+      });
+      if (key) {
+        await this.prisma.proProfile.update({
+          where: { userId: ustaUserId },
+          data: { subMerchantKey: key },
+        });
+      }
+    }
+    return key ? { key, netAmount } : undefined;
+  }
+
   /** Müşteri "Güvenli Ödeme Yap" → 3DS oturumu başlar. */
   async checkout(customerId: string, paymentId: string, apiBaseUrl: string) {
     const payment = await this.byIdForUser(paymentId, customerId);
@@ -134,11 +177,17 @@ export class PaymentsService {
       throw new BadRequestException('Bu ödeme şu an başlatılamaz');
     }
 
+    const subMerchant = await this.resolveSubMerchant(
+      payment.requestedByUserId,
+      Number(payment.netAmount),
+    );
+
     const session = await this.provider.initCheckout({
       paymentId,
       amount: Number(payment.amount),
       buyerId: customerId,
       callbackUrl: `${apiBaseUrl}/payments/${paymentId}/callback`,
+      subMerchant,
     });
 
     await this.prisma.payment.update({

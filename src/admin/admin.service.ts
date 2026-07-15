@@ -136,6 +136,7 @@ export class AdminService {
       await this.paymentProvider.refund({
         paymentId,
         providerRef: payment.providerRef ?? '',
+        amount: Number(payment.amount),
       });
     }
     const updated = await this.prisma.payment.update({

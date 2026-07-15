@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { PaymentProvider, CheckoutSession } from './payment.provider';
+import {
+  PaymentProvider,
+  CheckoutSession,
+  SubMerchantInput,
+} from './payment.provider';
 
 /**
  * Geliştirme/test sağlayıcısı: gerçek para akışı yok. 3DS sayfası backend
@@ -10,11 +14,17 @@ import { PaymentProvider, CheckoutSession } from './payment.provider';
  */
 @Injectable()
 export class FakePaymentProvider extends PaymentProvider {
+  // Sahte sağlayıcı marketplace değil — alt üye kaydı gerekmez.
+  ensureSubMerchant(_input: SubMerchantInput): Promise<string | null> {
+    return Promise.resolve(null);
+  }
+
   initCheckout(input: {
     paymentId: string;
     amount: number;
     buyerId: string;
     callbackUrl: string;
+    subMerchant?: { key: string; netAmount: number };
   }): Promise<CheckoutSession> {
     const providerRef = `fake-${randomUUID()}`;
     // Callback URL sayfaya taşınmaz (XSS yüzeyi) — 3DS sayfası kendi

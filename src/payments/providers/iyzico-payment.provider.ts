@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PaymentProvider, CheckoutSession } from './payment.provider';
+import {
+  PaymentProvider,
+  CheckoutSession,
+  SubMerchantInput,
+} from './payment.provider';
 
 // iyzipay resmi Node SDK (JS) — TS tipi yok, require ile alınır.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -8,12 +12,14 @@ const Iyzipay = require('iyzipay');
 type IyziCallback = (err: unknown, result: IyziResult) => void;
 interface IyziResult {
   status: string; // 'success' | 'failure'
+  errorCode?: string;
   errorMessage?: string;
   paymentPageUrl?: string;
   token?: string;
   paymentStatus?: string; // 'SUCCESS' ...
   paymentId?: string;
-  itemTransactions?: { paymentTransactionId: string }[];
+  subMerchantKey?: string;
+  itemTransactions?: { paymentTransactionId: string; paidPrice?: number }[];
   [k: string]: unknown;
 }
 
@@ -46,11 +52,46 @@ export class IyzicoPaymentProvider extends PaymentProvider {
     });
   }
 
+  /**
+   * Ustayı iyzico alt üye işyeri yapar (PERSONAL). Marketplace hesabında her
+   * ürün ödemesi bir subMerchantKey ister; bu anahtar ProProfile'da saklanır.
+   */
+  async ensureSubMerchant(input: SubMerchantInput): Promise<string | null> {
+    const result = await this.call((cb) =>
+      this.iyzipay.subMerchant.create(
+        {
+          locale: Iyzipay.LOCALE.TR,
+          conversationId: input.externalId,
+          subMerchantExternalId: input.externalId,
+          subMerchantType: Iyzipay.SUB_MERCHANT_TYPE.PERSONAL,
+          address: input.address,
+          contactName: input.contactName,
+          contactSurname: input.contactSurname,
+          email: input.email,
+          gsmNumber: input.gsmNumber,
+          name: input.name,
+          iban: input.iban,
+          identityNumber: input.identityNumber,
+          currency: Iyzipay.CURRENCY.TRY,
+        },
+        cb,
+      ),
+    );
+    if (result.status !== 'success' || !result.subMerchantKey) {
+      this.log.error(
+        `iyzico subMerchant.create başarısız (${result.errorCode}): ${result.errorMessage}`,
+      );
+      return null;
+    }
+    return result.subMerchantKey;
+  }
+
   async initCheckout(input: {
     paymentId: string;
     amount: number;
     buyerId: string;
     callbackUrl: string;
+    subMerchant?: { key: string; netAmount: number };
   }): Promise<CheckoutSession> {
     const price = input.amount.toFixed(2);
     // buyer/adres alanları iyzico tarafından zorunlu; sandbox için güvenli
@@ -98,6 +139,14 @@ export class IyzicoPaymentProvider extends PaymentProvider {
               category1: 'Hizmet',
               itemType: Iyzipay.BASKET_ITEM_TYPE.PHYSICAL,
               price,
+              // Marketplace escrow: ustanın alt üye anahtarı + ustaya net tutar
+              // (aradaki fark = %2 platform komisyonu, iyzico'da kalır).
+              ...(input.subMerchant
+                ? {
+                    subMerchantKey: input.subMerchant.key,
+                    subMerchantPrice: input.subMerchant.netAmount.toFixed(2),
+                  }
+                : {}),
             },
           ],
         },
@@ -157,8 +206,9 @@ export class IyzicoPaymentProvider extends PaymentProvider {
       ),
     );
     for (const tx of form.itemTransactions ?? []) {
+      // SDK kaynağı 'approval' (approvalRequest DEĞİL) — gerçek sandbox onayı.
       await this.call((cb) =>
-        this.iyzipay.approvalRequest.create(
+        this.iyzipay.approval.create(
           {
             locale: Iyzipay.LOCALE.TR,
             conversationId: input.paymentId,
@@ -173,6 +223,7 @@ export class IyzicoPaymentProvider extends PaymentProvider {
   async refund(input: {
     paymentId: string;
     providerRef: string;
+    amount: number;
   }): Promise<void> {
     const form = await this.call((cb) =>
       this.iyzipay.checkoutForm.retrieve(
@@ -185,12 +236,15 @@ export class IyzicoPaymentProvider extends PaymentProvider {
       ),
     );
     for (const tx of form.itemTransactions ?? []) {
+      // iyzico iade için 'price' zorunlu (errorCode 5004); işlemin ödenen
+      // tutarı varsa onu, yoksa istenen tutarı iade eder.
       await this.call((cb) =>
         this.iyzipay.refund.create(
           {
             locale: Iyzipay.LOCALE.TR,
             conversationId: input.paymentId,
             paymentTransactionId: tx.paymentTransactionId,
+            price: (tx.paidPrice ?? input.amount).toFixed(2),
             currency: Iyzipay.CURRENCY.TRY,
             ip: '85.34.78.112',
           },
