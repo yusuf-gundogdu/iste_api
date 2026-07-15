@@ -38,14 +38,19 @@ export class FcmPushSender extends PushSender {
     } catch {
       // Yok → aşağıda başlat.
     }
-    const path = process.env.FIREBASE_SERVICE_ACCOUNT;
-    if (!path) {
+    const value = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (!value) {
       throw new Error('FIREBASE_SERVICE_ACCOUNT tanımsız');
     }
-    const abs = isAbsolute(path) ? path : resolve(process.cwd(), path);
-    const serviceAccount = JSON.parse(
-      readFileSync(abs, 'utf8'),
-    ) as ServiceAccount;
+    // Değer ya doğrudan JSON içeriği (Koyeb gibi dosya mount edilemeyen
+    // ortamlarda env'e gömülür) ya da bir dosya yoludur (yerel geliştirme).
+    const raw = value.trimStart().startsWith('{')
+      ? value
+      : readFileSync(
+          isAbsolute(value) ? value : resolve(process.cwd(), value),
+          'utf8',
+        );
+    const serviceAccount = JSON.parse(raw) as ServiceAccount;
     this.app = initializeApp(
       { credential: cert(serviceAccount) },
       APP_NAME,

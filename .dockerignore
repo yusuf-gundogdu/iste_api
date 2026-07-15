@@ -1,0 +1,19 @@
+# Bağımlılıklar/çıktılar — imajda yeniden üretilir
+node_modules
+dist
+coverage
+
+# GİZLİ — imaja ASLA girmez (env üzerinden verilir)
+.env
+.env.*
+firebase-service-account.json
+*firebase-adminsdk*.json
+
+# Yerel/geçici
+uploads
+*.log
+.DS_Store
+test
+
+# generated/ build sırasında `prisma generate` ile yeniden üretilir
+generated
