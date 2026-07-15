@@ -57,6 +57,22 @@ export class IyzicoPaymentProvider extends PaymentProvider {
    * ürün ödemesi bir subMerchantKey ister; bu anahtar ProProfile'da saklanır.
    */
   async ensureSubMerchant(input: SubMerchantInput): Promise<string | null> {
+    // İdempotent: önce mevcut alt üyeyi getir (dönen usta / yerelde kaybolan
+    // anahtar durumu). Yoksa oluştur. Böylece "zaten var" (2002) çakışması olmaz.
+    const existing = await this.call((cb) =>
+      this.iyzipay.subMerchant.retrieve(
+        {
+          locale: Iyzipay.LOCALE.TR,
+          conversationId: input.externalId,
+          subMerchantExternalId: input.externalId,
+        },
+        cb,
+      ),
+    );
+    if (existing.status === 'success' && existing.subMerchantKey) {
+      return existing.subMerchantKey;
+    }
+
     const result = await this.call((cb) =>
       this.iyzipay.subMerchant.create(
         {
@@ -77,13 +93,13 @@ export class IyzicoPaymentProvider extends PaymentProvider {
         cb,
       ),
     );
-    if (result.status !== 'success' || !result.subMerchantKey) {
-      this.log.error(
-        `iyzico subMerchant.create başarısız (${result.errorCode}): ${result.errorMessage}`,
-      );
-      return null;
+    if (result.status === 'success' && result.subMerchantKey) {
+      return result.subMerchantKey;
     }
-    return result.subMerchantKey;
+    this.log.error(
+      `iyzico subMerchant create/retrieve başarısız (${result.errorCode}): ${result.errorMessage}`,
+    );
+    return null;
   }
 
   async initCheckout(input: {
