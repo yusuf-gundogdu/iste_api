@@ -165,7 +165,9 @@ export class PaymentsService {
       return { success: false };
     }
     // providerRef eşleşmeyen callback sahtedir — durum değiştirilemez.
-    if (!payment.providerRef || payload['ref'] !== payment.providerRef) {
+    // fake sağlayıcı 'ref', iyzico callback'i 'token' alanıyla döner.
+    const callbackRef = payload['ref'] ?? payload['token'];
+    if (!payment.providerRef || callbackRef !== payment.providerRef) {
       return { success: false };
     }
 
