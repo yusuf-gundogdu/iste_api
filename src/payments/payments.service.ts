@@ -146,15 +146,21 @@ export class PaymentsService {
     let key = usta.subMerchantKey;
     if (!key) {
       const adres = [usta.district, usta.city].filter(Boolean).join(', ');
+      // iyzico e-posta formatını (gerçek TLD) sıkı doğrular; demo seed
+      // e-postaları (@ornek.iste gibi) reddedilir → geçerli fallback.
+      const gecerliMail =
+        usta.user.email && /^[^@\s]+@[^@\s]+\.(com|net|org|app|io)$/i.test(usta.user.email)
+          ? usta.user.email
+          : `usta-${ustaUserId.slice(0, 8)}@iste.app`;
       key = await this.provider.ensureSubMerchant({
         externalId: ustaUserId,
         name: `${usta.user.firstName ?? 'İŞTE'} ${usta.user.lastName ?? 'Usta'}`,
         contactName: usta.user.firstName ?? 'İŞTE',
         contactSurname: usta.user.lastName ?? 'Usta',
         iban: usta.iban,
-        identityNumber: '11111111111', // TODO(üretim): gerçek TC (KYC)
-        gsmNumber: '+905350000000', //   TODO(üretim): gerçek telefon (KYC)
-        email: usta.user.email ?? 'usta@iste.app',
+        identityNumber: '31300864726', // TODO(üretim): gerçek TC (KYC)
+        gsmNumber: '+905350000000', //    TODO(üretim): gerçek telefon (KYC)
+        email: gecerliMail,
         address: adres.length >= 5 ? adres : 'Atakum, Samsun',
       });
       if (key) {

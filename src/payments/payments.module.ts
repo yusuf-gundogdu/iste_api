@@ -13,9 +13,14 @@ import { IyzicoPaymentProvider } from './providers/iyzico-payment.provider';
     PaymentsService,
     {
       provide: PaymentProvider,
-      useClass: process.env.IYZICO_API_KEY
-        ? IyzicoPaymentProvider
-        : FakePaymentProvider,
+      // useFactory (useClass DEĞİL): sağlayıcı seçimi DI anında, yani
+      // ConfigModule .env'i process.env'e yükledikten SONRA yapılır. useClass
+      // ternary'si modül import anında değerlenir; o an IYZICO_API_KEY henüz
+      // tanımsızdır → her zaman Fake seçilirdi (canlı iyzico hiç devreye girmezdi).
+      useFactory: (): PaymentProvider =>
+        process.env.IYZICO_API_KEY
+          ? new IyzicoPaymentProvider()
+          : new FakePaymentProvider(),
     },
   ],
   exports: [PaymentsService],
