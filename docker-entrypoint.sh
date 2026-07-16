@@ -9,7 +9,7 @@ npx prisma migrate deploy
 COUNT=$(node -e "const{PrismaPg}=require('@prisma/adapter-pg');const{PrismaClient}=require('./generated/prisma/client');const p=new PrismaClient({adapter:new PrismaPg({connectionString:process.env.DATABASE_URL})});p.proProfile.count().then(c=>{process.stdout.write(String(c));return p.\$disconnect()}).catch(()=>process.stdout.write('0'))" 2>/dev/null || echo 0)
 echo "== Usta sayısı: $COUNT =="
 
-if [ "$COUNT" -lt 150 ]; then
+if [ "$COUNT" -lt 150 ] || [ "$FORCE_SEED" = "1" ]; then
   echo "== Demo dünyası yükleniyor (seed) =="
   export TS_NODE_COMPILER_OPTIONS='{"module":"commonjs","moduleResolution":"node","resolvePackageJsonExports":false,"customConditions":null}'
   npx ts-node --transpile-only prisma/seed.ts || echo "!! Seed başarısız — mevcut veriyle devam"
