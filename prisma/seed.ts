@@ -311,6 +311,8 @@ interface DemoPro {
   lastName: string;
   categorySlug: string;
   district: string;
+  /** Şehir (Atakum → Samsun varsayılan; Beykoz → İstanbul). */
+  city?: string;
   lat: number;
   lng: number;
   bio: string;
@@ -339,6 +341,10 @@ interface DemoPro {
   responseMinutes?: number;
   /** noGallery (yeni/yorumsuz ustalar): iş örneği karosu hiç yok. */
   noGallery?: boolean;
+  /** Doğrulama durumu (varsayılan VERIFIED — yayında). Yeni ustalar IN_REVIEW. */
+  verificationStatus?: 'VERIFIED' | 'IN_REVIEW' | 'MISSING';
+  /** Yayın durumu (varsayılan true). Yeni/doğrulanmamış ustalar false. */
+  isPublished?: boolean;
   named: NamedReview[];
 }
 
@@ -582,12 +588,11 @@ const demoPros: DemoPro[] = [
     yearsExperience: 6,
     opensAt: '09:00',
     closesAt: '19:00',
-    rating: 4.7,
-    reviewCount: 12,
-    responseMinutes: 22,
-    named: [
-      { sub: 'demo-yorumcu-13', firstName: 'Mert', lastName: 'T.', rating: 5, daysAgo: 4, title: 'Kombi bakım', body: 'Hızlı ve temiz çalıştı.' },
-    ],
+    // Yeni katılan usta — henüz yorumu yok (reviews e2e bu ustayı temiz seçer).
+    rating: null,
+    reviewCount: 0,
+    noGallery: true,
+    named: [],
   },
   // ── 9) Kombi — TEK MARKA uzmanı (Vaillant+Bosch), köklü + ÖDEME ─────────
   {
@@ -909,21 +914,333 @@ const demoPros: DemoPro[] = [
   },
 ];
 
+// ─── Gerçekçi yorum metinleri (iyi + kötü) ─────────────────────────────────
+// Toplu yorumlar bu havuzlardan deterministik seçilir; yıldıza göre olumlu,
+// nötr ya da olumsuz metin atanır. Ustaların ratingAvg'i yıldızlardan doğar.
+const GOOD_REVIEWS = [
+  'İşini gerçekten biliyor, geldiği gibi sorunu çözdü. Çok memnun kaldım.',
+  'Çok titiz ve temiz çalıştı, hiç kir bırakmadı. Tavsiye ederim.',
+  'Randevuya dakik geldi, güler yüzlü ve ilgiliydi. Ellerine sağlık.',
+  'Fiyatı baştan net söyledi, sürpriz çıkmadı. İşçilik kusursuz.',
+  'Aynı gün geldi ve hızlıca hallettı. İletişimi çok iyiydi.',
+  'Uzun süredir bu kadar işinin ehli birine denk gelmemiştim. Harika.',
+  'Sorunu doğru teşhis etti, gereksiz masraf çıkarmadı. Dürüst usta.',
+  'Detaylara çok önem veriyor, sonuç beklediğimden iyi oldu.',
+  'Kibar, temiz ve çözüm odaklı. Bir daha mutlaka onu ararım.',
+  'Malzemeyi de kaliteli kullandı, garanti verdi. İçim rahat.',
+  'İşi bitince ortalığı toplayıp gitti, çok düzgün bir insan.',
+  'Telefonda anlattığım sorunu tam anladı, gelince tek seferde çözdü.',
+  'Hem hızlı hem özenli. Komşulara da tavsiye ettim.',
+  'Fiyat/performans çok iyi, işini severek yapan bir usta.',
+  'Zamanında geldi, işini profesyonelce yaptı, teşekkürler.',
+  'Sabırlı ve açıklayıcı, her adımı anlattı. Çok memnunum.',
+];
+const NEUTRAL_REVIEWS = [
+  'İş fena değildi ama biraz geç geldi. Sonuçta halloldu.',
+  'Ortalama bir hizmet, fiyatı biraz yüksekti ama iş gördü.',
+  'Genel olarak iyiydi, küçük bir eksik kaldı ama idare eder.',
+  'İşini yaptı ancak iletişim biraz zayıftı. Yine de sorun çözüldü.',
+  'Beklediğim kadar olmadı ama kötü de değildi.',
+];
+const BAD_REVIEWS = [
+  'Randevuya saatlerce geç geldi, sürekli erteledi. Hiç memnun kalmadım.',
+  'Söylediği fiyatın çok üstünde para istedi, iş de yarım kaldı.',
+  'İşi düzgün yapmadı, birkaç gün sonra aynı sorun tekrar çıktı.',
+  'İletişimi çok kötüydü, telefonlara bile zor cevap verdi.',
+  'Ortalığı berbat etti, temizlemeden gitti. Kesinlikle tavsiye etmem.',
+  'Parayı aldı ama iş beklediğim gibi olmadı, pişman oldum.',
+  'Gelmeyi sürekli erteledi, sonunda başka usta buldum.',
+  'Kaba davrandı, yaptığı iş de kalitesizdi. Bir daha aramam.',
+  'Fiyatta anlaştık ama sonradan ekstra ücret çıkardı. Güven vermedi.',
+  'İşi aceleye getirdi, sonuç hiç iç açıcı değil.',
+  'Söz verdiği gün gelmedi, haber bile vermedi.',
+  'Kullandığı malzeme kalitesizdi, kısa sürede bozuldu.',
+];
+
+/** Basit deterministik string hash (metin/örüntü seçimi için). */
+function hashStr(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0);
+}
+
+/** Yıldıza göre deterministik yorum metni (4-5★'ın bir kısmı metinsiz). */
+function reviewTextFor(rating: number, i: number, salt: string): string {
+  const h = hashStr(salt);
+  if (rating <= 2) return BAD_REVIEWS[(i + h) % BAD_REVIEWS.length];
+  if (rating === 3) return NEUTRAL_REVIEWS[(i + h) % NEUTRAL_REVIEWS.length];
+  // 4-5★: yaklaşık %55'i metinli (gerçekte herkes yorum yazmaz).
+  if (((i * 7 + h) % 100) < 55) {
+    return GOOD_REVIEWS[(i + h) % GOOD_REVIEWS.length];
+  }
+  return '';
+}
+
+/**
+ * n yorumu, toplamı tam `sum` olacak şekilde 1-5 yıldıza dağıtır.
+ * Gerçekçi karışım: çoğunluk 5, bir miktar 4, gerektiğinde birkaç GERÇEK
+ * kötü (1-2★) yorum. ROUND(AVG,1) hedef puana oturur.
+ */
+function generateRatingsForSum(n: number, sum: number): number[] {
+  if (n <= 0) return [];
+  const target = Math.max(n * 1, Math.min(n * 5, Math.round(sum)));
+  const ratings = new Array<number>(n).fill(5);
+  let deficit = 5 * n - target;
+  let i = 0;
+  // Gerçek kötü yorumlar (1-2★) — puan yeterince düşükse serpiştir.
+  let badBudget =
+    deficit <= 0
+      ? 0
+      : Math.min(Math.floor(n * 0.06) + 1, Math.floor(deficit / 3));
+  while (badBudget > 0 && i < n && deficit >= 3) {
+    if (deficit >= 4) {
+      ratings[i] = 1;
+      deficit -= 4;
+    } else {
+      ratings[i] = 2;
+      deficit -= 3;
+    }
+    i++;
+    badBudget--;
+  }
+  // Kalan farkı önce 3★ (−2), sonra 4★ (−1) ile kapat.
+  while (deficit >= 2 && i < n) {
+    ratings[i] = 3;
+    deficit -= 2;
+    i++;
+  }
+  while (deficit >= 1 && i < n) {
+    ratings[i] = 4;
+    deficit -= 1;
+    i++;
+  }
+  return ratings;
+}
+
+// ─── Beykoz (İstanbul) usta dünyası — ~200 gerçekçi usta ───────────────────
+// Yavuz Sultan Selim köprüsünün Anadolu yakası. Merkez 41.105, 29.095.
+// Ustalar Boğaz hattı mahallelerine küçük ofsetlerle yayılır; PostGIS
+// discover sorgusu mesafeyi bu noktalardan hesaplar.
+const BEYKOZ_CENTER = { lat: 41.105, lng: 29.095 };
+const BEYKOZ_NEIGHBORHOODS = [
+  'Kavacık', 'Anadoluhisarı', 'Kanlıca', 'Çubuklu', 'Paşabahçe',
+  'Beykoz Merkez', 'Göksu', 'Yalıköy', 'İncirköy', 'Rüzgarlıbahçe',
+  'Riva', 'Poyrazköy', 'Ortaçeşme', 'Tokatköy',
+];
+const MALE_FIRST = [
+  'Mehmet', 'Ahmet', 'Mustafa', 'Hüseyin', 'İbrahim', 'Ali', 'Hasan',
+  'Osman', 'Yusuf', 'Murat', 'Ömer', 'Kemal', 'Fatih', 'Emre', 'Serkan',
+  'Tolga', 'Volkan', 'Burak', 'Cem', 'Selim', 'Kadir', 'Onur', 'Barış',
+  'Uğur', 'Metin', 'Okan', 'Kerem', 'Hakan', 'Nadir', 'Serdar', 'Yavuz',
+  'Erhan', 'Gökhan', 'Tuncay', 'Sinan', 'Levent', 'Engin', 'Taner',
+  'Cengiz', 'Ferhat', 'Recep', 'Ramazan', 'Bülent', 'Coşkun', 'Devrim',
+  'Ekrem', 'Halil', 'İsmail', 'Kaan', 'Şükrü',
+];
+const FEMALE_FIRST = [
+  'Elif', 'Zeynep', 'Merve', 'Fatma', 'Aslı', 'Derya', 'Pınar', 'Esra',
+  'Hale', 'Gül', 'Sema', 'Nur', 'Ceren', 'İrem', 'Gizem', 'Sevil',
+  'Damla', 'Berna', 'Selin', 'Yağmur', 'Ayşe', 'Emine', 'Hatice', 'Melis',
+  'Seda', 'Buse', 'Tuğçe', 'Nazlı', 'Aylin', 'Sibel', 'Zehra', 'Gamze',
+  'Ece', 'Rana', 'Cansu', 'Duygu', 'Özge', 'Şeyma', 'Büşra', 'Dilara',
+];
+const TURK_LAST = [
+  'Yılmaz', 'Kaya', 'Demir', 'Çelik', 'Şahin', 'Yıldız', 'Yıldırım',
+  'Öztürk', 'Aydın', 'Özdemir', 'Arslan', 'Doğan', 'Kılıç', 'Aslan',
+  'Çetin', 'Kara', 'Koç', 'Kurt', 'Özkan', 'Şimşek', 'Polat', 'Korkmaz',
+  'Çakır', 'Erdoğan', 'Yavuz', 'Güneş', 'Aksoy', 'Bozkurt', 'Taş',
+  'Aktaş', 'Bulut', 'Kaplan', 'Ateş', 'Turan', 'Sarı', 'Erdem', 'Koçak',
+  'Avcı', 'Acar', 'Karaca', 'Deniz', 'Yalçın', 'Güler', 'Ünal', 'Toprak',
+  'Karaman', 'Demirci', 'Uçar', 'Şeker', 'Aydemir',
+];
+// Kategoriye özel bio cümleleri (2 varyant) + STARTING taban fiyatı.
+const CAT_CLAUSE: Record<string, [string, string]> = {
+  elektrik: ['pano-sigorta yenileme, priz ve aydınlatma arızalarında hızlı çözüm sunuyorum', 'kaçak akım, topraklama ve arıza tespitinde titiz çalışırım'],
+  'su-tesisati': ['tıkanıklık açma, kaçak tespiti ve batarya montajında deneyimliyim', 'su kaçağını kırmadan bulur, temiz onarım yaparım'],
+  boya: ['iç cephe, dekoratif ve saten boyada toz kontrollü çalışırım', 'alçı, tavan ve duvar boyasında pürüzsüz sonuç veririm'],
+  klima: ['split ve VRF montaj, gaz dolumu ve bakımda uzmanım', 'montaj ve devreye almada kablo işçiliğine önem veririm'],
+  kombi: ['arıza, yıllık bakım ve petek temizliğini eksiksiz yaparım', 'gaz emniyeti ve verimli ısınma için titiz bakım sunarım'],
+  temizlik: ['ev, ofis ve inşaat sonrası detaylı temizlik yapıyorum', 'kendi ekipmanımla hızlı ve titiz temizlik sağlarım'],
+  telefon: ['ekran, batarya ve şarj soketi değişimini aynı gün yaparım', 'anakart ve teşhis işlerinde garantili parça kullanırım'],
+  bilgisayar: ['format, donanım yükseltme ve virüs temizliği yapıyorum', 'yavaşlayan cihazlara hızlı ve kalıcı çözüm sunarım'],
+  'beyaz-esya': ['buzdolabı, çamaşır ve bulaşık makinesi arızalarına bakarım', 'yerinde arıza tespiti ve orijinal parçayla onarım yaparım'],
+  marangoz: ['mobilya tamiri, kapı ayarı ve ölçülü imalat yapıyorum', 'ahşap onarım ve montajda ince işçilik sunarım'],
+  cilingir: ['kapı açma ve kilit değişiminde 7/24 hızlı geliyorum', 'çelik kapı ve otomobil kilitlerinde deneyimliyim'],
+  nakliye: ['evden eve ve parça eşya taşımada özenli ekiple çalışırım', 'asansörlü, sigortalı ve zamanında taşıma yaparım'],
+  'pet-bakim': ['köpek tıraşı, tırnak ve pati bakımını sabırla yaparım', 'küçük ırk ve yaşlı dostlarda çok sakin çalışırım'],
+  'oto-bakim': ['mobil yıkama, iç detay ve seramik kaplama yapıyorum', 'pasta cila ve boya koruma işlerinde titizim'],
+  tadilat: ['banyo-mutfak yenileme, fayans ve alçıpan işleri yapıyorum', 'anahtar teslim daire tadilatında zamanında bitiririm'],
+  guzellik: ['evde manikür-pedikür, ağda ve cilt bakımı yapıyorum', 'steril malzememle adresinize gelip bakım sunuyorum'],
+  kuafor: ['evde saç kesimi, sakal ve fön hizmeti veriyorum', 'saç boyası ve bakımda kişiye özel çalışırım'],
+  bahce: ['çim biçme, budama ve otomatik sulama kurulumu yapıyorum', 'peyzaj düzenleme ve mevsimlik bakım anlaşmaları yaparım'],
+  'mobilya-montaj': ['hazır mobilya, gardırop ve mutfak dolabı montajı yaparım', 'söküm-taşıma sonrası hızlı ve sağlam kurulum sunarım'],
+  'cam-balkon': ['cam balkon, PVC pencere ve sineklik montajı yapıyorum', 'katlanır ısıcamlı sistemlerde ses ve toz yalıtımı sağlarım'],
+  ilaclama: ['böcek, kemirgen ve tahtakurusu ilaçlaması yapıyorum', 'ruhsatlı ilaçla kokusuz, garantili dezenfeksiyon sunarım'],
+  'hali-yikama': ['halı, koltuk ve perde yıkama hizmeti veriyorum', 'adresten alıp yıkar, yerinde koltuk temizliği yaparım'],
+};
+const CAT_BASE: Record<string, number> = {
+  elektrik: 300, 'su-tesisati': 350, boya: 3000, klima: 650, kombi: 500,
+  temizlik: 900, telefon: 1200, bilgisayar: 500, 'beyaz-esya': 550,
+  marangoz: 800, cilingir: 400, nakliye: 2500, 'pet-bakim': 400,
+  'oto-bakim': 1500, tadilat: 5000, guzellik: 700, kuafor: 350, bahce: 1200,
+  'mobilya-montaj': 400, 'cam-balkon': 4000, ilaclama: 1000, 'hali-yikama': 600,
+};
+const FEMALE_LEANING = new Set(['guzellik', 'kuafor', 'pet-bakim']);
+const BIO_CLOSINGS = [
+  'Aynı gün randevu verebiliyorum.',
+  'Temiz ve garantili iş çıkarırım, memnuniyet önceliğimdir.',
+  'Boğaz hattı ve çevre mahallelere gelebiliyorum.',
+  'İşimi severek yapıyorum; dürüstlük ve titizlik ilkemdir.',
+  'Acil çağrılara da bakıyorum, hızlı dönüş yaparım.',
+];
+
+/** mulberry32 — deterministik sözde-rastgele üreteç (index tohumlu). */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** ~200 Beykoz ustasını deterministik üretir (idempotent: sabit sub'lar). */
+function buildBeykozPros(): DemoPro[] {
+  const catSlugs = categories.map((c) => c.slug);
+  const catName = new Map(categories.map((c) => [c.slug, c.name]));
+  const catBrands = new Map(categories.map((c) => [c.slug, c.brands ?? []]));
+  const out: DemoPro[] = [];
+  const TOTAL = 200;
+  for (let i = 0; i < TOTAL; i++) {
+    const r = mulberry32(i * 2654435761 + 101);
+    const slug = catSlugs[i % catSlugs.length];
+    const female = FEMALE_LEANING.has(slug) ? r() < 0.7 : r() < 0.05;
+    const first = female
+      ? FEMALE_FIRST[Math.floor(r() * FEMALE_FIRST.length)]
+      : MALE_FIRST[Math.floor(r() * MALE_FIRST.length)];
+    const last = TURK_LAST[Math.floor(r() * TURK_LAST.length)];
+    const district = BEYKOZ_NEIGHBORHOODS[i % BEYKOZ_NEIGHBORHOODS.length];
+
+    // Konum: merkeze göre 0.4–6 km, rastgele yön.
+    const dist = 0.4 + r() * 5.6;
+    const ang = r() * 2 * Math.PI;
+    const lat = BEYKOZ_CENTER.lat + dist * Math.cos(ang) * KM_PER_DEG_LAT;
+    const lng = BEYKOZ_CENTER.lng + dist * Math.sin(ang) * KM_PER_DEG_LNG;
+
+    const years = 2 + Math.floor(r() * 24);
+    const clause = CAT_CLAUSE[slug]?.[r() < 0.5 ? 0 : 1] ?? '';
+    const closing = BIO_CLOSINGS[Math.floor(r() * BIO_CLOSINGS.length)];
+    const bio = `${district}'da ${years} yıldır ${(catName.get(slug) ?? '').toLowerCase()} işi yapıyorum; ${clause}. ${closing}`;
+
+    // Fiyat yaklaşımı + tutar (kategoriye göre taban).
+    const pk = r();
+    const price: DemoPro['price'] =
+      pk < 0.45 ? 'NEGOTIABLE' : pk < 0.8 ? 'STARTING' : 'FIXED';
+    const base = CAT_BASE[slug] ?? 500;
+    const amount =
+      price === 'NEGOTIABLE'
+        ? undefined
+        : Math.round((base * (0.8 + r() * 0.6)) / 10) * 10;
+
+    const emergency =
+      r() < 0.4 ? 'Var' : r() < 0.7 ? 'Yok' : 'Hafta içi';
+    const opensAt = ['08:00', '08:30', '09:00', '09:30', '10:00'][Math.floor(r() * 5)];
+    const closesAt = ['18:00', '18:30', '19:00', '20:00', '21:00'][Math.floor(r() * 5)];
+    const closedToday = r() < 0.12;
+
+    // ~%14 yeni/doğrulanmamış usta: yayında değil, yorumsuz.
+    const isNew = r() < 0.14;
+    let rating: number | null;
+    let reviewCount: number;
+    if (isNew) {
+      rating = null;
+      reviewCount = 0;
+    } else {
+      // Puan 4.2–5.0; yorum sayısı 3–70.
+      rating = Math.round((4.2 + r() * 0.8) * 10) / 10;
+      reviewCount = 3 + Math.floor(r() * 68);
+    }
+
+    // Marka uzmanlığı: markası olan kategorilerde bazen tek/çift markaya odak.
+    const brands = catBrands.get(slug) ?? [];
+    let chosenBrands: string[] | undefined;
+    if (brands.length > 0 && r() < 0.45) {
+      const k = 1 + Math.floor(r() * Math.min(2, brands.length));
+      chosenBrands = brands.slice(0, k);
+    }
+
+    // Ödeme geçmişi: doğrulanmış ustaların ~%28'ine 1-2 kayıt.
+    let payments: PaymentSeed[] | undefined;
+    if (!isNew && r() < 0.28) {
+      const n = 1 + (r() < 0.4 ? 1 : 0);
+      payments = Array.from({ length: n }, (_, k) => {
+        const amt = Math.round((base * (1 + r() * 3)) / 50) * 50;
+        return {
+          amount: Math.max(300, amt),
+          status: (r() < 0.6 ? 'RELEASED' : 'SECURED') as PaymentSeed['status'],
+          title: `${catName.get(slug)} hizmeti`,
+          daysAgo: 1 + Math.floor(r() * 25),
+          customerFirst:
+            MALE_FIRST[Math.floor(r() * MALE_FIRST.length)],
+          customerLast: TURK_LAST[Math.floor(r() * TURK_LAST.length)],
+        };
+      });
+    }
+
+    out.push({
+      sub: `demo-usta-bkz-${i + 1}`,
+      firstName: first,
+      lastName: last,
+      categorySlug: slug,
+      district,
+      city: 'İstanbul',
+      lat,
+      lng,
+      bio,
+      emergency,
+      price,
+      amount,
+      yearsExperience: years,
+      brands: chosenBrands,
+      regions: [
+        { name: district, approxKm: null },
+        { name: 'Kavacık', approxKm: Math.round(dist * 10) / 10 },
+        { name: 'Üsküdar', approxKm: Math.round((dist + 8) * 10) / 10 },
+      ],
+      payments,
+      opensAt,
+      closesAt,
+      closedToday,
+      rating,
+      reviewCount,
+      responseMinutes: isNew ? undefined : 8 + Math.floor(r() * 30),
+      noGallery: isNew,
+      verificationStatus: isNew ? 'IN_REVIEW' : 'VERIFIED',
+      isPublished: !isNew,
+      named: [],
+    });
+  }
+  return out;
+}
+
+// Beykoz ustalarını ana listeye ekle (idempotent — sabit sub'lar).
+demoPros.push(...buildBeykozPros());
+
 // Toplu (metinsiz) yorumların müşterileri: demo-musteri-1..N.
 // Aynı müşteri + aynı usta çifti tek sohbet olabildiğinden (unique)
-// en kalabalık ustanın yorum sayısı kadar müşteri gerekir.
+// en kalabalık ustanın yorum sayısı kadar müşteri gerekir; en az 100 müşteri.
 const DEMO_CUSTOMER_COUNT = Math.max(
+  100,
   ...demoPros.map((p) => p.reviewCount - p.named.length),
 );
-const CUSTOMER_FIRST = [
-  'Ahmet', 'Zeynep', 'Mustafa', 'Elif', 'Hüseyin', 'Merve', 'İbrahim',
-  'Fatma', 'Kemal', 'Aslı', 'Serkan', 'Derya', 'Tolga', 'Pınar', 'Burak',
-  'Gül', 'Volkan', 'Esra', 'Cem', 'Hale',
-];
-const CUSTOMER_LAST = [
-  'Yılmaz', 'Kara', 'Şahin', 'Aydın', 'Öztürk', 'Arslan', 'Doğan',
-  'Kılıç', 'Çetin', 'Koçak', 'Erdem', 'Güneş', 'Polat',
-];
+// Müşteri isim havuzu: kadın+erkek karışık, geniş soyad havuzu (100+ müşteri).
+const CUSTOMER_FIRST = MALE_FIRST.flatMap((m, idx) =>
+  idx < FEMALE_FIRST.length ? [m, FEMALE_FIRST[idx]] : [m],
+);
+const CUSTOMER_LAST = TURK_LAST;
 
 async function main() {
   // Prototip dışı eski kategoriler temizlenir (slug uyuşmazlığı).
@@ -1025,15 +1342,49 @@ async function main() {
   // böylece aynı hesap hem müşteri hem usta modunda uçtan uca test edilir.
   await seedDemoKullaniciPro(demoUser.id);
 
+  await backfillAvatars();
+
   const counts = {
     categories: await prisma.category.count(),
     subServices: await prisma.subService.count(),
     brands: await prisma.brand.count(),
     pros: await prisma.proProfile.count(),
+    users: await prisma.user.count(),
     reviews: await prisma.review.count(),
+    goodReviews: await prisma.review.count({ where: { rating: { gte: 4 } } }),
+    badReviews: await prisma.review.count({ where: { rating: { lte: 2 } } }),
     payments: await prisma.payment.count(),
+    addresses: await prisma.address.count(),
   };
   console.log('Seed tamam:', counts);
+}
+
+/**
+ * Avatarları (temsili çizim, gerçek kişi DEĞİL) demo kullanıcılara deterministik
+ * atar. Usta seti → seed-assets/avatars/ustas, kullanıcı seti → .../users.
+ * providerSub hash'i ile 1..40 arası dosya seçilir. İdempotent + stale DB'de de
+ * çalışır (mevcut satırları da günceller). Harici URL YOK, repoya gömülü dosya.
+ */
+async function backfillAvatars() {
+  const proSubs = demoPros.map((p) => p.sub);
+  // Ustalar (+ iki-mod tek hesap demo-kullanici): "ustas" seti.
+  await prisma.$executeRaw`
+    UPDATE users SET "avatarUrl" =
+      '/seed-assets/avatars/ustas/usta-'
+      || to_char(((hashtext("providerSub") % 40) + 40) % 40 + 1, 'FM00')
+      || '.png'
+    WHERE "providerSub" = ANY(${proSubs}) OR "providerSub" = 'demo-kullanici'`;
+  // Müşteriler / yorumcular / ödeme müşterileri / gelen iş / admin: "users" seti.
+  await prisma.$executeRaw`
+    UPDATE users SET "avatarUrl" =
+      '/seed-assets/avatars/users/user-'
+      || to_char(((hashtext("providerSub") % 40) + 40) % 40 + 1, 'FM00')
+      || '.png'
+    WHERE "providerSub" LIKE 'demo-musteri-%'
+       OR "providerSub" LIKE 'demo-yorumcu-%'
+       OR "providerSub" LIKE 'demo-odeme-%'
+       OR "providerSub" LIKE 'demo-kullanici-isi-%'
+       OR "providerSub" = 'demo-admin'`;
 }
 
 async function seedDemoPros() {
@@ -1061,6 +1412,36 @@ async function seedDemoPros() {
       Number(a.providerSub.replace('demo-musteri-', '')) -
       Number(b.providerSub.replace('demo-musteri-', '')),
   );
+
+  // 100 müşteriye ev adresi: yarısı Atakum (Samsun), yarısı Beykoz (İstanbul).
+  // "İki lokasyonda yaşayan müşteri" verisi. İdempotent: önce sil, sonra kur.
+  const featured = bulkCustomers.slice(0, 100);
+  await prisma.address.deleteMany({
+    where: { userId: { in: featured.map((c) => c.id) } },
+  });
+  const ATAKUM_MAH = [
+    'Denizevleri Mah.', 'Mimarsinan Mah.', 'Körfez Mah.', 'Atakent Mah.',
+    'Cumhuriyet Mah.', 'Esenevler Mah.', 'Yeşiltepe Mah.', 'Balaç Mah.',
+  ];
+  const BEYKOZ_MAH = [
+    'Kavacık Mah.', 'Anadoluhisarı Mah.', 'Kanlıca Mah.', 'Çubuklu Mah.',
+    'Paşabahçe Mah.', 'Göksu Mah.', 'Yalıköy Mah.', 'Ortaçeşme Mah.',
+  ];
+  await prisma.address.createMany({
+    data: featured.map((c, i) => {
+      const beykoz = i % 2 === 1;
+      const mah = beykoz
+        ? BEYKOZ_MAH[i % BEYKOZ_MAH.length]
+        : ATAKUM_MAH[i % ATAKUM_MAH.length];
+      return {
+        userId: c.id,
+        title: 'Ev',
+        city: beykoz ? 'İstanbul' : 'Samsun',
+        district: beykoz ? 'Beykoz' : 'Atakum',
+        fullText: `${mah}, ${(i % 40) + 1}. Sk. No:${(i % 30) + 1} D:${(i % 12) + 1}, ${beykoz ? 'Beykoz/İstanbul' : 'Atakum/Samsun'}`,
+      };
+    }),
+  });
 
   // Prototip reviewList yazarları (kararlı sub → idempotent).
   await prisma.user.createMany({
@@ -1130,12 +1511,12 @@ async function seedDemoPros() {
         yearsExperience: demo.yearsExperience ?? null,
         latitude: demo.lat,
         longitude: demo.lng,
-        city: 'Samsun',
+        city: demo.city ?? 'Samsun',
         district: demo.district,
         emergency: demo.emergency,
         maxDistanceKm: 12,
-        verificationStatus: 'VERIFIED',
-        isPublished: true,
+        verificationStatus: demo.verificationStatus ?? 'VERIFIED',
+        isPublished: demo.isPublished ?? true,
       },
       create: {
         userId: user.id,
@@ -1145,14 +1526,14 @@ async function seedDemoPros() {
         priceApproach: demo.price,
         priceAmount: demo.amount,
         yearsExperience: demo.yearsExperience,
-        city: 'Samsun',
+        city: demo.city ?? 'Samsun',
         district: demo.district,
         emergency: demo.emergency,
         latitude: demo.lat,
         longitude: demo.lng,
         maxDistanceKm: 12,
-        verificationStatus: 'VERIFIED',
-        isPublished: true,
+        verificationStatus: demo.verificationStatus ?? 'VERIFIED',
+        isPublished: demo.isPublished ?? true,
       },
     });
 
@@ -1366,13 +1747,14 @@ async function seedDemoReviews(
     select: { id: true, providerSub: true },
   });
 
-  // Yıldız dağılımı: fivesTotal beşli, kalanı dörtlü → ortalama prototipteki
-  // değere yuvarlanır. Prototip metinli yorumların yıldızları düşülür.
-  const fivesTotal = Math.round((demo.rating - 4) * demo.reviewCount);
-  const namedFives = demo.named.filter((n) => n.rating === 5).length;
+  // Yıldız dağılımı: toplam yorum çoğunluğu 5-4★, gerçekçilik için birkaç
+  // GERÇEK kötü (1-2★) ve nötr (3★) yorum. ROUND(AVG,1) hedef puana oturur.
+  // Metinli (named) yorumların yıldız toplamı düşülür; kalanı bulkSum'a dağılır.
   const bulkCount = demo.reviewCount - demo.named.length;
-  const bulkFives = fivesTotal - namedFives;
-  const bulkFours = bulkCount - bulkFives;
+  const totalSum = Math.round(demo.rating * demo.reviewCount);
+  const namedSum = demo.named.reduce((s, n) => s + n.rating, 0);
+  const bulkSum = totalSum - namedSum;
+  const bulkRatings = generateRatingsForSum(bulkCount, bulkSum);
 
   const conversations: Array<{
     id: string;
@@ -1459,23 +1841,21 @@ async function seedDemoReviews(
     );
   }
 
-  // 2) Toplu yorumlar — metinsiz, prototip metinlilerden daha ESKİ.
+  // 2) Toplu yorumlar — iyi + kötü + nötr metin karışımı, named'lerden ESKİ.
   const oldestNamedDays = Math.max(0, ...demo.named.map((n) => n.daysAgo));
   const subServiceNames = category.subServices.map((s) => s.name);
   for (let i = 0; i < bulkCount; i++) {
-    // 4 yıldızlılar eşit aralıklarla serpiştirilir (Bresenham).
-    const isFour =
-      Math.floor(((i + 1) * bulkFours) / bulkCount) >
-      Math.floor((i * bulkFours) / bulkCount);
-    const daysAgo = oldestNamedDays + 3 + Math.round(i * 2.5);
+    const rating = bulkRatings[i];
+    const body = reviewTextFor(rating, i, demo.sub);
+    const daysAgo = oldestNamedDays + 3 + Math.round(i * 2.2);
     pushReview(
       bulkCustomers[i].id,
-      isFour ? 4 : 5,
-      '',
+      rating,
+      body,
       subServiceNames[i % subServiceNames.length] ?? category.name,
       new Date(now - daysAgo * DAY - (i % 12) * 3_600_000),
-      i % 2 === 0,
-      false,
+      i % 2 === 0, // yarısı doğrulanmış işlem (ödemeyle)
+      body !== '', // metinli yorumlar alt puan da taşır
     );
   }
 
@@ -1484,8 +1864,10 @@ async function seedDemoReviews(
   await prisma.review.createMany({ data: reviews });
 
   // 3) Prototip responseTime — müşteri mesajı + usta yanıtı çifti.
-  if (demo.responseMinutes != null && namedConversationIds.length > 0) {
-    const conversationId = namedConversationIds[0];
+  // Named yoksa (Beykoz ustaları) ilk toplu sohbet üzerinden hesaplanır.
+  void namedConversationIds;
+  if (demo.responseMinutes != null && conversations.length > 0) {
+    const conversationId = conversations[0].id;
     const customerId = conversations[0].customerId;
     const askedAt = new Date(now - DAY);
     await prisma.message.createMany({
