@@ -27,6 +27,8 @@ COPY --from=builder /app/generated ./generated
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/docker-entrypoint.sh ./docker-entrypoint.sh
+# Seed avatar setleri — imaja gömülü, /seed-assets olarak servis edilir.
+COPY --from=builder /app/seed-assets ./seed-assets
 COPY package*.json ./
 # Yüklenen görseller ephemeral disk'te (free tier) — demo için kabul.
 RUN mkdir -p uploads

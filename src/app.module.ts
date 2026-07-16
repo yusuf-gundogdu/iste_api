@@ -27,6 +27,13 @@ import { UsersModule } from './users/users.module';
       serveRoot: '/uploads',
       serveStaticOptions: { maxAge: '7d', immutable: true },
     }),
+    // Seed avatar setleri (repoya gömülü, imaja dahil — ephemeral disk değil,
+    // her ortamda kalıcı). Seed avatarUrl'leri /seed-assets/... döndürür.
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'seed-assets'),
+      serveRoot: '/seed-assets',
+      serveStaticOptions: { maxAge: '30d', immutable: true },
+    }),
     PrismaModule,
     HealthModule,
     AuthModule,

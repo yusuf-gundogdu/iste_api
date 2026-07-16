@@ -6,13 +6,13 @@ set -e
 
 npx prisma migrate deploy
 
-COUNT=$(node -e "const{PrismaPg}=require('@prisma/adapter-pg');const{PrismaClient}=require('./generated/prisma/client');const p=new PrismaClient({adapter:new PrismaPg({connectionString:process.env.DATABASE_URL})});p.category.count().then(c=>{process.stdout.write(String(c));return p.\$disconnect()}).catch(()=>process.stdout.write('0'))" 2>/dev/null || echo 0)
-echo "== Kategori sayısı: $COUNT =="
+COUNT=$(node -e "const{PrismaPg}=require('@prisma/adapter-pg');const{PrismaClient}=require('./generated/prisma/client');const p=new PrismaClient({adapter:new PrismaPg({connectionString:process.env.DATABASE_URL})});p.proProfile.count().then(c=>{process.stdout.write(String(c));return p.\$disconnect()}).catch(()=>process.stdout.write('0'))" 2>/dev/null || echo 0)
+echo "== Usta sayısı: $COUNT =="
 
-if [ "$COUNT" = "0" ]; then
-  echo "== İlk kurulum: demo veri yükleniyor (seed) =="
+if [ "$COUNT" -lt 150 ]; then
+  echo "== Demo dünyası yükleniyor (seed) =="
   export TS_NODE_COMPILER_OPTIONS='{"module":"commonjs","moduleResolution":"node","resolvePackageJsonExports":false,"customConditions":null}'
-  npx ts-node --transpile-only prisma/seed.ts || echo "!! Seed başarısız — boş DB ile devam"
+  npx ts-node --transpile-only prisma/seed.ts || echo "!! Seed başarısız — mevcut veriyle devam"
 fi
 
 exec node dist/src/main
