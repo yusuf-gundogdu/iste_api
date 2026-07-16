@@ -980,43 +980,75 @@ function reviewTextFor(rating: number, i: number, salt: string): string {
 }
 
 /**
- * n yorumu, toplamı tam `sum` olacak şekilde 1-5 yıldıza dağıtır.
- * Gerçekçi karışım: çoğunluk 5, bir miktar 4, gerektiğinde birkaç GERÇEK
- * kötü (1-2★) yorum. ROUND(AVG,1) hedef puana oturur.
+ * n yorumu, toplamı TAM `sum` olacak şekilde 1-5 yıldıza dağıtır.
+ * DOĞAL J-EĞRİSİ: 5★ en sık, ardından 4★, 3★, 2★, 1★ azalan sıklıkta
+ * (5>4>3>2≈1). Yüksek ortalamalı ustada 5★ ağırlıklı, düşük ortalamalıda
+ * mass 1-3★'a kayar. Toplam tam tutturulduğu için ROUND(AVG,1) hedefe oturur.
+ *
+ * Yöntem: her yorumu "5 − ceza" olarak düşün. Toplam ceza = 5n − hedef.
+ * Cezayı katmanlara böl: L[k] = cezası ≥ (k+1) olan yorum sayısı; katmanlar
+ * geometrik olarak azalır (L[0]≥L[1]≥L[2]≥L[3]) → 4★>3★>2★>1★ doğal eğrisi.
  */
 function generateRatingsForSum(n: number, sum: number): number[] {
   if (n <= 0) return [];
   const target = Math.max(n * 1, Math.min(n * 5, Math.round(sum)));
   const ratings = new Array<number>(n).fill(5);
-  let deficit = 5 * n - target;
-  let i = 0;
-  // Gerçek kötü yorumlar (1-2★) — puan yeterince düşükse serpiştir.
-  let badBudget =
-    deficit <= 0
-      ? 0
-      : Math.min(Math.floor(n * 0.06) + 1, Math.floor(deficit / 3));
-  while (badBudget > 0 && i < n && deficit >= 3) {
-    if (deficit >= 4) {
-      ratings[i] = 1;
-      deficit -= 4;
-    } else {
-      ratings[i] = 2;
-      deficit -= 3;
+  const D = 5 * n - target; // dağıtılacak toplam ceza (0..4n)
+  if (D <= 0) return ratings;
+
+  // Katman hedef boyutları: geometrik azalış (ρ) ile 4★>3★>2★>1★.
+  const rho = 0.42;
+  const w = [1, rho, rho * rho, rho * rho * rho];
+  const wsum = w[0] + w[1] + w[2] + w[3];
+  const L = [0, 0, 0, 0];
+  for (let k = 0; k < 4; k++) L[k] = Math.round((D * w[k]) / wsum);
+  // Üst sınır (L[0]≤n) + azalmayan (non-increasing) düzeni zorla.
+  L[0] = Math.min(L[0], n);
+  for (let k = 1; k < 4; k++) L[k] = Math.min(L[k], L[k - 1]);
+
+  // Toplam cezayı (Σ L) tam D'ye oturt.
+  let cur = L[0] + L[1] + L[2] + L[3];
+  while (cur < D) {
+    // En sığ büyüyebilen katmana ekle (4★ baskınlığını korur).
+    let added = false;
+    for (let k = 0; k < 4; k++) {
+      const upper = k === 0 ? n : L[k - 1];
+      if (L[k] < upper) {
+        L[k]++;
+        cur++;
+        added = true;
+        break;
+      }
     }
-    i++;
-    badBudget--;
+    if (!added) break;
   }
-  // Kalan farkı önce 3★ (−2), sonra 4★ (−1) ile kapat.
-  while (deficit >= 2 && i < n) {
-    ratings[i] = 3;
-    deficit -= 2;
-    i++;
+  while (cur > D) {
+    // En derin dolu katmandan çıkar (alt kuyruğu minimumda tutar).
+    let removed = false;
+    for (let k = 3; k >= 0; k--) {
+      const lower = k === 3 ? 0 : L[k + 1];
+      if (L[k] > lower) {
+        L[k]--;
+        cur--;
+        removed = true;
+        break;
+      }
+    }
+    if (!removed) break;
   }
-  while (deficit >= 1 && i < n) {
-    ratings[i] = 4;
-    deficit -= 1;
-    i++;
+
+  // Katman sayılarından yıldız sayıları: 1★=L[3], 2★=L[2]-L[3], ...
+  const cnt = [
+    L[3], // 1★
+    L[2] - L[3], // 2★
+    L[1] - L[2], // 3★
+    L[0] - L[1], // 4★
+  ];
+  let idx = 0;
+  for (let star = 1; star <= 4; star++) {
+    for (let c = 0; c < cnt[star - 1]; c++) ratings[idx++] = star;
   }
+  // Kalanlar 5★ olarak kalır.
   return ratings;
 }
 
@@ -1055,30 +1087,65 @@ const TURK_LAST = [
   'Avcı', 'Acar', 'Karaca', 'Deniz', 'Yalçın', 'Güler', 'Ünal', 'Toprak',
   'Karaman', 'Demirci', 'Uçar', 'Şeker', 'Aydemir',
 ];
-// Kategoriye özel bio cümleleri (2 varyant) + STARTING taban fiyatı.
-const CAT_CLAUSE: Record<string, [string, string]> = {
-  elektrik: ['pano-sigorta yenileme, priz ve aydınlatma arızalarında hızlı çözüm sunuyorum', 'kaçak akım, topraklama ve arıza tespitinde titiz çalışırım'],
-  'su-tesisati': ['tıkanıklık açma, kaçak tespiti ve batarya montajında deneyimliyim', 'su kaçağını kırmadan bulur, temiz onarım yaparım'],
-  boya: ['iç cephe, dekoratif ve saten boyada toz kontrollü çalışırım', 'alçı, tavan ve duvar boyasında pürüzsüz sonuç veririm'],
-  klima: ['split ve VRF montaj, gaz dolumu ve bakımda uzmanım', 'montaj ve devreye almada kablo işçiliğine önem veririm'],
-  kombi: ['arıza, yıllık bakım ve petek temizliğini eksiksiz yaparım', 'gaz emniyeti ve verimli ısınma için titiz bakım sunarım'],
-  temizlik: ['ev, ofis ve inşaat sonrası detaylı temizlik yapıyorum', 'kendi ekipmanımla hızlı ve titiz temizlik sağlarım'],
-  telefon: ['ekran, batarya ve şarj soketi değişimini aynı gün yaparım', 'anakart ve teşhis işlerinde garantili parça kullanırım'],
-  bilgisayar: ['format, donanım yükseltme ve virüs temizliği yapıyorum', 'yavaşlayan cihazlara hızlı ve kalıcı çözüm sunarım'],
-  'beyaz-esya': ['buzdolabı, çamaşır ve bulaşık makinesi arızalarına bakarım', 'yerinde arıza tespiti ve orijinal parçayla onarım yaparım'],
-  marangoz: ['mobilya tamiri, kapı ayarı ve ölçülü imalat yapıyorum', 'ahşap onarım ve montajda ince işçilik sunarım'],
-  cilingir: ['kapı açma ve kilit değişiminde 7/24 hızlı geliyorum', 'çelik kapı ve otomobil kilitlerinde deneyimliyim'],
-  nakliye: ['evden eve ve parça eşya taşımada özenli ekiple çalışırım', 'asansörlü, sigortalı ve zamanında taşıma yaparım'],
-  'pet-bakim': ['köpek tıraşı, tırnak ve pati bakımını sabırla yaparım', 'küçük ırk ve yaşlı dostlarda çok sakin çalışırım'],
-  'oto-bakim': ['mobil yıkama, iç detay ve seramik kaplama yapıyorum', 'pasta cila ve boya koruma işlerinde titizim'],
-  tadilat: ['banyo-mutfak yenileme, fayans ve alçıpan işleri yapıyorum', 'anahtar teslim daire tadilatında zamanında bitiririm'],
-  guzellik: ['evde manikür-pedikür, ağda ve cilt bakımı yapıyorum', 'steril malzememle adresinize gelip bakım sunuyorum'],
-  kuafor: ['evde saç kesimi, sakal ve fön hizmeti veriyorum', 'saç boyası ve bakımda kişiye özel çalışırım'],
-  bahce: ['çim biçme, budama ve otomatik sulama kurulumu yapıyorum', 'peyzaj düzenleme ve mevsimlik bakım anlaşmaları yaparım'],
-  'mobilya-montaj': ['hazır mobilya, gardırop ve mutfak dolabı montajı yaparım', 'söküm-taşıma sonrası hızlı ve sağlam kurulum sunarım'],
-  'cam-balkon': ['cam balkon, PVC pencere ve sineklik montajı yapıyorum', 'katlanır ısıcamlı sistemlerde ses ve toz yalıtımı sağlarım'],
-  ilaclama: ['böcek, kemirgen ve tahtakurusu ilaçlaması yapıyorum', 'ruhsatlı ilaçla kokusuz, garantili dezenfeksiyon sunarım'],
-  'hali-yikama': ['halı, koltuk ve perde yıkama hizmeti veriyorum', 'adresten alıp yıkar, yerinde koltuk temizliği yaparım'],
+// Kategoriye özel doğal iş adı (ek almayan isim tamlaması; açılış şablonlarına
+// gömülür — "beyaz eşya tamiri işiyle uğraşıyorum" gibi doğal okunur).
+const CAT_NOUN: Record<string, string> = {
+  elektrik: 'elektrik ve aydınlatma',
+  'su-tesisati': 'su tesisatı ve tıkanıklık açma',
+  boya: 'boya ve badana',
+  klima: 'klima montaj ve bakımı',
+  kombi: 'kombi bakımı ve arıza onarımı',
+  temizlik: 'ev ve ofis temizliği',
+  telefon: 'telefon tamiri',
+  bilgisayar: 'bilgisayar tamiri ve teknik destek',
+  'beyaz-esya': 'beyaz eşya tamiri',
+  marangoz: 'marangozluk ve ahşap',
+  cilingir: 'çilingir ve kilit',
+  nakliye: 'nakliye ve taşımacılık',
+  'pet-bakim': 'evcil hayvan bakımı',
+  'oto-bakim': 'oto bakım ve detailing',
+  tadilat: 'tadilat ve iç mekan yenileme',
+  guzellik: 'güzellik ve cilt bakımı',
+  kuafor: 'kuaförlük ve saç bakımı',
+  bahce: 'bahçe bakımı ve peyzaj',
+  'mobilya-montaj': 'mobilya montajı',
+  'cam-balkon': 'cam balkon ve PVC pencere',
+  ilaclama: 'ilaçlama ve haşere kontrolü',
+  'hali-yikama': 'halı ve koltuk yıkama',
+};
+// Açılış şablonları: mahalle adına EK KOYMAZ ("bölgesinde/ve çevresinde/
+// civarında/ve yakın mahallelerde"). Böylece her mahallede gramer doğru.
+const BIO_OPENINGS: Array<(d: string, y: number, n: string) => string> = [
+  (d, y, n) => `${d} bölgesinde ${y} yıldır ${n} işiyle uğraşıyorum`,
+  (d, y, n) => `${y} yıldır ${d} ve çevresinde ${n} hizmeti veriyorum`,
+  (d, y, n) => `${d} civarında ${n} konusunda ${y} yıllık deneyimim var`,
+  (d, y, n) => `${d} ve yakın mahallelerde ${y} yıldır ${n} işi yapıyorum`,
+  (d, y, n) => `${d} bölgesinde ${n} alanında ${y} yıldır çalışıyorum`,
+];
+// Kategoriye özel bio cümleleri (4-5 doğal varyant) — tekdüzeliği kırar.
+const CAT_CLAUSE: Record<string, string[]> = {
+  elektrik: ['pano-sigorta yenileme, priz ve aydınlatma arızalarında hızlı çözüm sunuyorum', 'kaçak akım, topraklama ve arıza tespitinde titiz çalışırım', 'ev ve iş yeri tesisatını standartlara uygun döşerim', 'avize-aplik montajı ve akıllı ev sistemlerinde deneyimliyim', 'sigorta atması ve kısa devre sorunlarını kalıcı çözerim'],
+  'su-tesisati': ['tıkanıklık açma, kaçak tespiti ve batarya montajında deneyimliyim', 'su kaçağını kırmadan bulur, temiz onarım yaparım', 'petek, gider ve pissu hattı sorunlarını kalıcı çözerim', 'banyo-mutfak tesisat yenileme ve armatür değişimi yaparım', 'kombi ve şofben su bağlantılarında da yardımcı olurum'],
+  boya: ['iç cephe, dekoratif ve saten boyada toz kontrollü çalışırım', 'alçı, tavan ve duvar boyasında pürüzsüz sonuç veririm', 'eski boyayı raspalayıp astar üstüne düzgün uygularım', 'daire, villa ve ofis boyasında temiz ve hızlı ilerlerim', 'rutubet ve çatlak onarımı sonrası kalıcı boya yaparım'],
+  klima: ['split ve VRF montaj, gaz dolumu ve bakımda uzmanım', 'montaj ve devreye almada kablo işçiliğine önem veririm', 'iç-dış ünite bakımı ve filtre temizliğini eksiksiz yaparım', 'inverter sistemlerde arıza ve gaz kaçağı onarımı yaparım', 'demontaj-montaj ve yer değişikliğinde titiz çalışırım'],
+  kombi: ['arıza, yıllık bakım ve petek temizliğini eksiksiz yaparım', 'gaz emniyeti ve verimli ısınma için titiz bakım sunarım', 'kombi gaz açma, ateşleme ve basınç sorunlarını çözerim', 'tüm marka kombilerde yetkili servis deneyimim var', 'kış öncesi bakım ve devreye alma işlerini yaparım'],
+  temizlik: ['ev, ofis ve inşaat sonrası detaylı temizlik yapıyorum', 'kendi ekipmanımla hızlı ve titiz temizlik sağlarım', 'cam, mutfak ve ıslak alanlarda derinlemesine temizlik yaparım', 'düzenli haftalık ve aylık temizlik anlaşmaları yapıyorum', 'taşınma öncesi ve sonrası kapsamlı temizlik veririm'],
+  telefon: ['ekran, batarya ve şarj soketi değişimini aynı gün yaparım', 'anakart ve teşhis işlerinde garantili parça kullanırım', 'suya düşen cihazlarda kurtarma ve onarım yapıyorum', 'tüm model telefonlarda hızlı ve garantili tamir sunarım', 'kamera ve hoparlör arızalarında orijinal parça takarım'],
+  bilgisayar: ['format, donanım yükseltme ve virüs temizliği yapıyorum', 'yavaşlayan cihazlara hızlı ve kalıcı çözüm sunarım', 'SSD takma, RAM yükseltme ve ısınma sorunlarını çözerim', 'masaüstü ve dizüstü tamirinde yerinde servis veriyorum', 'veri kurtarma ve işletim sistemi kurulumu yapıyorum'],
+  'beyaz-esya': ['buzdolabı, çamaşır ve bulaşık makinesi arızalarına bakarım', 'yerinde arıza tespiti ve orijinal parçayla onarım yaparım', 'fırın, ocak ve kurutma makinesi tamirinde deneyimliyim', 'tüm marka beyaz eşyada garantili tamir sunuyorum', 'su akıtma ve ısıtmama arızalarını hızlı çözerim'],
+  marangoz: ['mobilya tamiri, kapı ayarı ve ölçülü imalat yapıyorum', 'ahşap onarım ve montajda ince işçilik sunarım', 'gardırop, raf ve mutfak dolabı imalatı yapıyorum', 'kapı-pencere ayarı ve menteşe değişiminde hızlıyım', 'ölçüye özel ahşap ürün ve dekor işleri yaparım'],
+  cilingir: ['kapı açma ve kilit değişiminde 7/24 hızlı geliyorum', 'çelik kapı ve otomobil kilitlerinde deneyimliyim', 'kasa, kilit ve barel değişiminde güvenli çözüm sunarım', 'anahtar kopyalama ve kilit takviyesi yapıyorum', 'kapıda hasar bırakmadan açma konusunda tecrübeliyim'],
+  nakliye: ['evden eve ve parça eşya taşımada özenli ekiple çalışırım', 'asansörlü, sigortalı ve zamanında taşıma yaparım', 'ambalajlama, söküm-montaj ve şehir içi taşıma yapıyorum', 'ofis ve ev taşımada eşyayı koruyarak paketlerim', 'tek parça ve beyaz eşya taşımada da yardımcı olurum'],
+  'pet-bakim': ['köpek tıraşı, tırnak ve pati bakımını sabırla yaparım', 'küçük ırk ve yaşlı dostlarda çok sakin çalışırım', 'ırka özel tıraş, yıkama ve kulak-tırnak bakımı yaparım', 'evde ya da salonda strese sokmadan bakım sunarım', 'düğüm açma ve mevsimlik kürk bakımında deneyimliyim'],
+  'oto-bakim': ['mobil yıkama, iç detay ve seramik kaplama yapıyorum', 'pasta cila ve boya koruma işlerinde titizim', 'motor ve koltuk detaylı temizliğinde özenli çalışırım', 'grafen kaplama ve PPF uygulamasında deneyimliyim', 'adrese gelip aracı içi dışı tertemiz teslim ederim'],
+  tadilat: ['banyo-mutfak yenileme, fayans ve alçıpan işleri yapıyorum', 'anahtar teslim daire tadilatında zamanında bitiririm', 'zemin, seramik ve laminat parke uygulaması yaparım', 'ekibimle komple iç mekan yenileme işleri alıyorum', 'alçıpan, boya ve elektrik-su revizyonunu birlikte yaparım'],
+  guzellik: ['evde manikür-pedikür, ağda ve cilt bakımı yapıyorum', 'steril malzememle adresinize gelip bakım sunuyorum', 'kalıcı oje, protez tırnak ve kaş tasarımı yapıyorum', 'gelin ve özel gün bakım paketlerim var', 'cilt analizi ve leke bakımında kişiye özel çalışırım'],
+  kuafor: ['evde saç kesimi, sakal ve fön hizmeti veriyorum', 'saç boyası ve bakımda kişiye özel çalışırım', 'topuz, gelin saçı ve fön modellerinde deneyimliyim', 'erkek ve kadın saç kesiminde adresinize geliyorum', 'keratin ve bakım uygulamalarında titiz çalışırım'],
+  bahce: ['çim biçme, budama ve otomatik sulama kurulumu yapıyorum', 'peyzaj düzenleme ve mevsimlik bakım anlaşmaları yaparım', 'ağaç budama, çim ekimi ve gübreleme yapıyorum', 'bahçe temizliği ve bitki bakımında düzenli hizmet veririm', 'çit, çim ve sulama sistemi kurulumunda deneyimliyim'],
+  'mobilya-montaj': ['hazır mobilya, gardırop ve mutfak dolabı montajı yaparım', 'söküm-taşıma sonrası hızlı ve sağlam kurulum sunarım', 'IKEA, Bellona ve İstikbal ürünlerini eksiksiz kurarım', 'TV ünitesi, raf ve yatak montajında pratiğim', 'taşınmada söküp yeniden kurma işini üstlenirim'],
+  'cam-balkon': ['cam balkon, PVC pencere ve sineklik montajı yapıyorum', 'katlanır ısıcamlı sistemlerde ses ve toz yalıtımı sağlarım', 'sürme cam sistemleri ve panjur montajı yapıyorum', 'ölçü alıp ısıcamlı balkon kapatmayı temiz uygularım', 'cam değişimi ve conta yenilemede de yardımcı olurum'],
+  ilaclama: ['böcek, kemirgen ve tahtakurusu ilaçlaması yapıyorum', 'ruhsatlı ilaçla kokusuz, garantili dezenfeksiyon sunarım', 'hamamböceği ve karınca için kalıcı çözüm uygularım', 'ev, iş yeri ve bahçede periyodik ilaçlama yaparım', 'sinek ve kene mücadelesinde etkili yöntem kullanırım'],
+  'hali-yikama': ['halı, koltuk ve perde yıkama hizmeti veriyorum', 'adresten alıp yıkar, yerinde koltuk temizliği yaparım', 'leke ve koku çıkarma işleminde özel çözümler kullanırım', 'antibakteriyel yıkama ve hızlı teslimat sunuyorum', 'yün ve makine halılarında uygun programla yıkarım'],
 };
 const CAT_BASE: Record<string, number> = {
   elektrik: 300, 'su-tesisati': 350, boya: 3000, klima: 650, kombi: 500,
@@ -1094,6 +1161,9 @@ const BIO_CLOSINGS = [
   'Boğaz hattı ve çevre mahallelere gelebiliyorum.',
   'İşimi severek yapıyorum; dürüstlük ve titizlik ilkemdir.',
   'Acil çağrılara da bakıyorum, hızlı dönüş yaparım.',
+  'İşi söz verdiğim günde ve fiyatta bitiririm.',
+  'Uygun fiyat ve kaliteli işçilik için arayabilirsiniz.',
+  'Detayları sohbette netleştirip net fiyat veririm.',
 ];
 
 /** mulberry32 — deterministik sözde-rastgele üreteç (index tohumlu). */
@@ -1131,9 +1201,19 @@ function buildBeykozPros(): DemoPro[] {
     const lng = BEYKOZ_CENTER.lng + dist * Math.sin(ang) * KM_PER_DEG_LNG;
 
     const years = 2 + Math.floor(r() * 24);
-    const clause = CAT_CLAUSE[slug]?.[r() < 0.5 ? 0 : 1] ?? '';
+    // Bio: mahalle adına EK KOYMAYAN açılış (bölgesinde/ve çevresinde/...) +
+    // kategoriye özel doğal cümle (4-5 varyant) + çeşitli kapanış.
+    const noun = CAT_NOUN[slug] ?? (catName.get(slug) ?? '').toLowerCase();
+    const opening =
+      BIO_OPENINGS[Math.floor(r() * BIO_OPENINGS.length)](district, years, noun);
+    const clauses = CAT_CLAUSE[slug] ?? [];
+    const clause = clauses.length
+      ? clauses[Math.floor(r() * clauses.length)]
+      : '';
     const closing = BIO_CLOSINGS[Math.floor(r() * BIO_CLOSINGS.length)];
-    const bio = `${district}'da ${years} yıldır ${(catName.get(slug) ?? '').toLowerCase()} işi yapıyorum; ${clause}. ${closing}`;
+    const bio = clause
+      ? `${opening}; ${clause}. ${closing}`
+      : `${opening}. ${closing}`;
 
     // Fiyat yaklaşımı + tutar (kategoriye göre taban).
     const pk = r();
@@ -1159,8 +1239,19 @@ function buildBeykozPros(): DemoPro[] {
       rating = null;
       reviewCount = 0;
     } else {
-      // Puan 4.2–5.0; yorum sayısı 3–70.
-      rating = Math.round((4.2 + r() * 0.8) * 10) / 10;
+      // Gerçek kalite yelpazesi: pazaryerinde çok iyi / iyi / orta / kötü
+      // ustalar bir arada. Yorum sayısı 3–70.
+      const q = r();
+      if (q < 0.13) {
+        // ~%13 DÜŞÜK ortalamalı (kötü/orta) usta: 2.6–3.6.
+        rating = Math.round((2.6 + r() * 1.0) * 10) / 10;
+      } else if (q < 0.3) {
+        // ~%17 orta-iyi usta: 3.7–4.3.
+        rating = Math.round((3.7 + r() * 0.6) * 10) / 10;
+      } else {
+        // ~%70 iyi–çok iyi usta: 4.4–5.0.
+        rating = Math.round((4.4 + r() * 0.6) * 10) / 10;
+      }
       reviewCount = 3 + Math.floor(r() * 68);
     }
 
