@@ -1487,26 +1487,34 @@ async function main() {
 }
 
 /**
- * Avatarları (temsili çizim, gerçek kişi DEĞİL) demo kullanıcılara deterministik
- * atar. Usta seti → seed-assets/avatars/ustas, kullanıcı seti → .../users.
- * providerSub hash'i ile 1..40 arası dosya seçilir. İdempotent + stale DB'de de
- * çalışır (mevcut satırları da günceller). Harici URL YOK, repoya gömülü dosya.
+ * Avatarları (SENTETİK gerçekçi yüz — StyleGAN üretimi, GERÇEK KİŞİ DEĞİL)
+ * demo kullanıcılara deterministik + CİNSİYET-EŞLEŞMELİ atar: kadın isme kadın
+ * yüzü, erkek isme erkek yüzü (isim FEMALE_FIRST havuzundaysa kadın). Usta seti
+ * → seed-assets/avatars/ustas (usta-m-01..40 / usta-f-01..20), kullanıcı seti
+ * → .../users (user-m-01..20 / user-f-01..20). providerSub hash'i ile dosya
+ * seçilir. İdempotent + stale DB'de de çalışır. Harici URL YOK, repoya gömülü.
  */
 async function backfillAvatars() {
   const proSubs = demoPros.map((p) => p.sub);
-  // Ustalar (+ iki-mod tek hesap demo-kullanici): "ustas" seti.
+  // Ustalar (+ iki-mod tek hesap demo-kullanici): "ustas" seti (40 erkek/20 kadın).
   await prisma.$executeRaw`
     UPDATE users SET "avatarUrl" =
       '/seed-assets/avatars/ustas/usta-'
-      || to_char(((hashtext("providerSub") % 40) + 40) % 40 + 1, 'FM00')
-      || '.png'
+      || CASE WHEN "firstName" = ANY(${FEMALE_FIRST})
+              THEN 'f-' || to_char(((hashtext("providerSub") % 18) + 18) % 18 + 1, 'FM00')
+              ELSE 'm-' || to_char(((hashtext("providerSub") % 40) + 40) % 40 + 1, 'FM00')
+         END
+      || '.jpg'
     WHERE "providerSub" = ANY(${proSubs}) OR "providerSub" = 'demo-kullanici'`;
-  // Müşteriler / yorumcular / ödeme müşterileri / gelen iş / admin: "users" seti.
+  // Müşteriler / yorumcular / ödeme / gelen iş / admin: "users" seti (20 erkek/20 kadın).
   await prisma.$executeRaw`
     UPDATE users SET "avatarUrl" =
       '/seed-assets/avatars/users/user-'
-      || to_char(((hashtext("providerSub") % 40) + 40) % 40 + 1, 'FM00')
-      || '.png'
+      || CASE WHEN "firstName" = ANY(${FEMALE_FIRST})
+              THEN 'f-' || to_char(((hashtext("providerSub") % 17) + 17) % 17 + 1, 'FM00')
+              ELSE 'm-' || to_char(((hashtext("providerSub") % 20) + 20) % 20 + 1, 'FM00')
+         END
+      || '.jpg'
     WHERE "providerSub" LIKE 'demo-musteri-%'
        OR "providerSub" LIKE 'demo-yorumcu-%'
        OR "providerSub" LIKE 'demo-odeme-%'
