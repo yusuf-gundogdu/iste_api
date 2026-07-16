@@ -16,7 +16,9 @@ RUN npm run build
 # ─── Runner ────────────────────────────────────────────────────────────────
 FROM node:22-slim AS runner
 WORKDIR /app
-ENV NODE_ENV=production
+# NOT: NODE_ENV production YAPILMIYOR — arkadaş testi DEMO giriş (dev auth)
+# kullanır; production'da dev auth güvenlik gereği kapalı (gerçek OAuth ister).
+# Bu backend demo/test amaçlıdır, gerçek kullanıcı için değildir.
 RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 # node_modules'ı builder'dan al (prisma CLI + generate edilmiş client dahil).
 COPY --from=builder /app/node_modules ./node_modules
