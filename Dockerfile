@@ -26,9 +26,11 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/generated ./generated
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+COPY --from=builder /app/docker-entrypoint.sh ./docker-entrypoint.sh
 COPY package*.json ./
-# Yüklenen görseller ephemeral disk'te (Koyeb free) — demo için kabul.
+# Yüklenen görseller ephemeral disk'te (free tier) — demo için kabul.
 RUN mkdir -p uploads
-# Koyeb PORT'u env ile verir; main.ts process.env.PORT'u okur.
+# PORT env ile gelir; main.ts process.env.PORT'u okur.
 EXPOSE 3000
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main"]
+# migrate → (boşsa) seed → uygulama.
+CMD ["sh", "docker-entrypoint.sh"]
