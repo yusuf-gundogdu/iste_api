@@ -980,76 +980,112 @@ function reviewTextFor(rating: number, i: number, salt: string): string {
 }
 
 /**
- * n yorumu, toplamı TAM `sum` olacak şekilde 1-5 yıldıza dağıtır.
- * DOĞAL J-EĞRİSİ: 5★ en sık, ardından 4★, 3★, 2★, 1★ azalan sıklıkta
- * (5>4>3>2≈1). Yüksek ortalamalı ustada 5★ ağırlıklı, düşük ortalamalıda
- * mass 1-3★'a kayar. Toplam tam tutturulduğu için ROUND(AVG,1) hedefe oturur.
+ * n yorumu, ortalaması hedef puana (ROUND(AVG,1)) oturacak şekilde 1-5 yıldıza
+ * dağıtır — GERÇEK yorum verisi gibi DOĞAL VARYANSLA.
  *
- * Yöntem: her yorumu "5 − ceza" olarak düşün. Toplam ceza = 5n − hedef.
- * Cezayı katmanlara böl: L[k] = cezası ≥ (k+1) olan yorum sayısı; katmanlar
- * geometrik olarak azalır (L[0]≥L[1]≥L[2]≥L[3]) → 4★>3★>2★>1★ doğal eğrisi.
+ * Yöntem: yıldız ağırlıkları w[s] = a^(5-s) (geometrik) + 1★'a küçük kabarma;
+ * `a`, ağırlıklı ortalama hedefe eşit olacak şekilde bisection ile çözülür.
+ * Böylece:
+ *  - Hiçbir usta tek yıldıza KİLİTLENMEZ (ortalama 4.9'da tavanlı → 5.0 hedefli
+ *    ustada bile bir miktar 4★/3★ varyans; n≥8'de en az 2 farklı yıldız).
+ *  - Düşük ortalamalı usta tek yıldıza KÜMELENMEZ, 1-4★ doğal yayılır.
+ *  - 1★'a kabarma ile global uçta J-şekli (1★ ≥ 2★) oluşur.
  */
 function generateRatingsForSum(n: number, sum: number): number[] {
   if (n <= 0) return [];
-  const target = Math.max(n * 1, Math.min(n * 5, Math.round(sum)));
-  const ratings = new Array<number>(n).fill(5);
-  const D = 5 * n - target; // dağıtılacak toplam ceza (0..4n)
-  if (D <= 0) return ratings;
+  const targetSum = Math.max(n, Math.min(5 * n, Math.round(sum)));
+  const rawMean = targetSum / n;
+  // Ortalama 4.9'da tavanlanır: hiçbir usta %100 5★'a kilitlenmesin.
+  const mean = Math.min(4.9, Math.max(1, rawMean));
 
-  // Katman hedef boyutları: geometrik azalış (ρ) ile 4★>3★>2★>1★.
-  const rho = 0.42;
-  const w = [1, rho, rho * rho, rho * rho * rho];
-  const wsum = w[0] + w[1] + w[2] + w[3];
-  const L = [0, 0, 0, 0];
-  for (let k = 0; k < 4; k++) L[k] = Math.round((D * w[k]) / wsum);
-  // Üst sınır (L[0]≤n) + azalmayan (non-increasing) düzeni zorla.
-  L[0] = Math.min(L[0], n);
-  for (let k = 1; k < 4; k++) L[k] = Math.min(L[k], L[k - 1]);
-
-  // Toplam cezayı (Σ L) tam D'ye oturt.
-  let cur = L[0] + L[1] + L[2] + L[3];
-  while (cur < D) {
-    // En sığ büyüyebilen katmana ekle (4★ baskınlığını korur).
-    let added = false;
-    for (let k = 0; k < 4; k++) {
-      const upper = k === 0 ? n : L[k - 1];
-      if (L[k] < upper) {
-        L[k]++;
-        cur++;
-        added = true;
-        break;
-      }
-    }
-    if (!added) break;
-  }
-  while (cur > D) {
-    // En derin dolu katmandan çıkar (alt kuyruğu minimumda tutar).
-    let removed = false;
-    for (let k = 3; k >= 0; k--) {
-      const lower = k === 3 ? 0 : L[k + 1];
-      if (L[k] > lower) {
-        L[k]--;
-        cur--;
-        removed = true;
-        break;
-      }
-    }
-    if (!removed) break;
-  }
-
-  // Katman sayılarından yıldız sayıları: 1★=L[3], 2★=L[2]-L[3], ...
-  const cnt = [
-    L[3], // 1★
-    L[2] - L[3], // 2★
-    L[1] - L[2], // 3★
-    L[0] - L[1], // 4★
+  // 1★ kabarması: global J-eğrisi (uçta 1★ ≥ 2★). a ≥ 1/BUMP1 olan (≈orta-düşük
+  // ortalamalı) ustalarda 1★ ≥ 2★; yüksek ortalamalıda ikisi de çok küçük.
+  const BUMP1 = 2.4;
+  const weightsFor = (a: number): number[] => [
+    a * a * a * a * BUMP1, // 1★
+    a * a * a, // 2★
+    a * a, // 3★
+    a, // 4★
+    1, // 5★
   ];
-  let idx = 0;
-  for (let star = 1; star <= 4; star++) {
-    for (let c = 0; c < cnt[star - 1]; c++) ratings[idx++] = star;
+  const meanFor = (a: number): number => {
+    const w = weightsFor(a);
+    let W = 0;
+    let sm = 0;
+    for (let s = 1; s <= 5; s++) {
+      W += w[s - 1];
+      sm += s * w[s - 1];
+    }
+    return sm / W;
+  };
+  // meanFor(a), a büyüdükçe AZALIR (düşük yıldızlar ağırlaşır) → bisection.
+  let lo = 1e-4;
+  let hi = 80;
+  for (let it = 0; it < 90; it++) {
+    const mid = (lo + hi) / 2;
+    if (meanFor(mid) > mean) lo = mid;
+    else hi = mid;
   }
-  // Kalanlar 5★ olarak kalır.
-  return ratings;
+  const w = weightsFor((lo + hi) / 2);
+  const W = w[0] + w[1] + w[2] + w[3] + w[4];
+
+  // Largest-remainder ile n'e toplanan tam sayı yıldız adetleri (c[0]=1★..c[4]=5★).
+  const exact = w.map((x) => (x / W) * n);
+  const c = exact.map((x) => Math.floor(x));
+  let assigned = c.reduce((s, x) => s + x, 0);
+  const order = exact
+    .map((x, idx) => ({ idx, frac: x - Math.floor(x) }))
+    .sort((p, q) => q.frac - p.frac);
+  for (let ri = 0; assigned < n; ri++, assigned++) c[order[ri % 5].idx]++;
+
+  const distinct = () => c.filter((x) => x > 0).length;
+  // Varyans tabanı: n≥8'de tek yıldıza kilitlenme olursa komşuya bir yorum kaydır.
+  if (n >= 8 && distinct() < 2) {
+    const s = c.findIndex((x) => x === n);
+    if (s >= 0) {
+      const nb = s === 4 ? 3 : s + 1;
+      c[s]--;
+      c[nb]++;
+    }
+  }
+
+  // Toplamı hedef yuvarlamaya (ROUND(avg,1)) getir: komşu yıldıza kaydırarak.
+  const targetRounded = Math.round(mean * 10) / 10;
+  const roundedAvg = () =>
+    Math.round(((c[0] + 2 * c[1] + 3 * c[2] + 4 * c[3] + 5 * c[4]) / n) * 10) /
+    10;
+  let guard = 0;
+  const cap = 6 * n + 12;
+  while (roundedAvg() < targetRounded && guard++ < cap) {
+    // Bir yorumu bir üst yıldıza taşı (en üstteki 5-altı yıldızdan başla).
+    let moved = false;
+    for (let s = 3; s >= 0; s--) {
+      if (c[s] > 0) {
+        c[s]--;
+        c[s + 1]++;
+        moved = true;
+        break;
+      }
+    }
+    if (!moved) break;
+  }
+  while (roundedAvg() > targetRounded && guard++ < cap) {
+    // Bir yorumu bir alt yıldıza taşı (en üstteki yıldızdan başla).
+    let moved = false;
+    for (let s = 4; s >= 1; s--) {
+      if (c[s] > 0) {
+        c[s]--;
+        c[s - 1]++;
+        moved = true;
+        break;
+      }
+    }
+    if (!moved) break;
+  }
+
+  const out: number[] = [];
+  for (let s = 1; s <= 5; s++) for (let k = 0; k < c[s - 1]; k++) out.push(s);
+  return out;
 }
 
 // ─── Beykoz (İstanbul) usta dünyası — ~200 gerçekçi usta ───────────────────
@@ -1249,8 +1285,8 @@ function buildBeykozPros(): DemoPro[] {
         // ~%17 orta-iyi usta: 3.7–4.3.
         rating = Math.round((3.7 + r() * 0.6) * 10) / 10;
       } else {
-        // ~%70 iyi–çok iyi usta: 4.4–5.0.
-        rating = Math.round((4.4 + r() * 0.6) * 10) / 10;
+        // ~%70 iyi–çok iyi usta: 4.3–4.9 (tavan 4.9 → tek yıldıza kilitlenme yok).
+        rating = Math.round((4.3 + r() * 0.6) * 10) / 10;
       }
       reviewCount = 3 + Math.floor(r() * 68);
     }
