@@ -53,12 +53,31 @@ export class ConversationsService {
     });
 
     if (!existing) {
+      // Bildirim data'sı mobilin targetRoute'unu (başlık + kategori + usta
+      // profil linki) beslemeli; yalın { conversationId } gönderilirse başlık
+      // 'Sohbet'e düşer ve usta profiline geçiş gizli kalır.
+      const proName =
+        [conversation.proProfile.user.firstName, conversation.proProfile.user.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || 'Usta';
+      const customerName =
+        [conversation.customer.firstName, conversation.customer.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || 'Müşteri';
       await this.notifications.notify({
         userId: pro.userId,
         type: 'NEW_CONVERSATION',
         title: 'Yeni müşteri sohbeti',
         body: 'Bir müşteri seninle sohbet başlattı — hemen yanıtla.',
-        data: { conversationId: conversation.id },
+        data: {
+          conversationId: conversation.id,
+          proName,
+          proProfileId: conversation.proProfile.id,
+          categoryName: conversation.proProfile.mainCategory.name,
+          otherName: customerName,
+        },
       });
     }
     return conversation;

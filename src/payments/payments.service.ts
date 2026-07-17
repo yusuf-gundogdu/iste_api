@@ -43,7 +43,15 @@ export class PaymentsService {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: input.conversationId },
       include: {
-        proProfile: { select: { userId: true } },
+        proProfile: {
+          select: {
+            id: true,
+            userId: true,
+            mainCategory: { select: { name: true } },
+            user: { select: { firstName: true, lastName: true } },
+          },
+        },
+        customer: { select: { firstName: true, lastName: true } },
         serviceRecord: true,
       },
     });
@@ -114,12 +122,29 @@ export class PaymentsService {
       requestMessage,
     );
 
+    const proName =
+      [conversation.proProfile.user.firstName, conversation.proProfile.user.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || 'Usta';
+    const customerName =
+      [conversation.customer.firstName, conversation.customer.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || 'Müşteri';
     await this.notifications.notify({
       userId: conversation.customerId,
       type: 'PAYMENT_REQUESTED',
       title: 'Ödeme talebi geldi',
       body: `₺${input.amount.toFixed(0)} tutarında güvenli ödeme talebi bekliyor.`,
-      data: { conversationId: conversation.id, paymentId: payment.id },
+      data: {
+        conversationId: conversation.id,
+        paymentId: payment.id,
+        proName,
+        proProfileId: conversation.proProfile.id,
+        categoryName: conversation.proProfile.mainCategory.name,
+        otherName: customerName,
+      },
     });
     return this.serialize(payment.id);
   }
@@ -261,6 +286,7 @@ export class PaymentsService {
         'message:new',
         securedMessage,
       );
+      const context = await this.notifyContext(payment.conversationId);
       await this.notifications.notify({
         userId: payment.requestedByUserId,
         type: 'PAYMENT_SECURED',
@@ -269,6 +295,7 @@ export class PaymentsService {
         data: {
           conversationId: payment.conversationId,
           paymentId: payment.id,
+          ...(context ?? {}),
         },
       });
     } else {
@@ -412,6 +439,50 @@ export class PaymentsService {
   async detail(userId: string, paymentId: string) {
     await this.byIdForUser(paymentId, userId);
     return this.serialize(paymentId, userId);
+  }
+
+  /**
+   * Bildirim data'sının targetRoute bağlamı (usta adı + profil linki +
+   * kategori + müşteri adı). Mobil bunu okuyup başlık/CTA üretir; boş gelirse
+   * başlık 'Sohbet'e düşer ve usta profil linki gizlenir.
+   */
+  private async notifyContext(conversationId: string): Promise<{
+    proName: string;
+    proProfileId: string;
+    categoryName: string;
+    otherName: string;
+  } | null> {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        proProfile: {
+          select: {
+            id: true,
+            mainCategory: { select: { name: true } },
+            user: { select: { firstName: true, lastName: true } },
+          },
+        },
+        customer: { select: { firstName: true, lastName: true } },
+      },
+    });
+    if (!conversation) return null;
+    return {
+      proName:
+        [
+          conversation.proProfile.user.firstName,
+          conversation.proProfile.user.lastName,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || 'Usta',
+      proProfileId: conversation.proProfile.id,
+      categoryName: conversation.proProfile.mainCategory.name,
+      otherName:
+        [conversation.customer.firstName, conversation.customer.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || 'Müşteri',
+    };
   }
 
   private async byIdForUser(paymentId: string, userId: string) {
