@@ -16,6 +16,11 @@ if [ "$COUNT" -lt 150 ] || [ "$FORCE_SEED" = "1" ]; then
   npx ts-node --transpile-only prisma/seed.ts || echo "!! Seed başarısız — mevcut veriyle devam"
 fi
 
+# Marka listeleri: tam reseed atlansa bile genişletilmiş marka listelerini
+# kategorilere upsert et (tahripkâr değil, idempotent).
+echo "== Marka backfill (kategori marka listeleri) =="
+npx ts-node --transpile-only prisma/backfill-brands.ts || echo "!! Marka backfill başarısız — mevcut markalarla devam"
+
 # Avatarları her açılışta SENTETİK yüzlere + cinsiyet-eşleşmeli güncelle
 # (idempotent; tam reseed atlansa bile eski/çizim avatarları düzeltir).
 echo "== Avatar backfill (sentetik yüz, cinsiyet-eşleşmeli) =="
