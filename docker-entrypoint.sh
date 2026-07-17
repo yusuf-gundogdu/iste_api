@@ -21,4 +21,8 @@ fi
 echo "== Avatar backfill (sentetik yüz, cinsiyet-eşleşmeli) =="
 npx ts-node --transpile-only prisma/backfill-avatars.ts || echo "!! Avatar backfill başarısız — mevcut avatarlarla devam"
 
+# Galeri + kapak: kategoriye göre gerçek iş fotoğrafları (idempotent).
+echo "== Galeri + kapak backfill (gerçek iş fotoğrafları) =="
+npx ts-node --transpile-only prisma/backfill-gallery.ts || echo "!! Galeri backfill başarısız — mevcut galeriyle devam"
+
 exec node dist/src/main
