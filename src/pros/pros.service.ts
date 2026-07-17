@@ -1024,6 +1024,8 @@ export class ProsService {
         id: true,
         maxDistanceKm: true,
         district: true,
+        latitude: true,
+        longitude: true,
         regions: { select: { id: true, name: true, approxKm: true } },
       },
     });
@@ -1033,6 +1035,9 @@ export class ProsService {
     return {
       district: profile.district,
       maxDistanceKm: profile.maxDistanceKm,
+      // Hizmet yarıçapının merkezi (usta konumu); yoksa mobil varsayılan merkez kullanır.
+      latitude: profile.latitude,
+      longitude: profile.longitude,
       regions: profile.regions,
     };
   }
