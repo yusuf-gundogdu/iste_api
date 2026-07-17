@@ -9,6 +9,7 @@ interface DiscoverItem {
   categorySlug: string;
   distanceKm: number;
   openToday: boolean;
+  city: string;
 }
 
 describe('Discover (e2e)', () => {
@@ -103,5 +104,46 @@ describe('Discover (e2e)', () => {
     await request(app.getHttpServer())
       .get('/api/v1/pros/discover?lat=999&lng=29')
       .expect(400);
+  });
+
+  // ── 3.8 + 3.10 İl geneli (provinceWide) ──
+  it('provinceWide=true il (city) bazlı filtreler — hepsi aynı il', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`${base}&provinceWide=true`)
+      .expect(200);
+
+    const items = res.body as DiscoverItem[];
+    expect(items.length).toBeGreaterThanOrEqual(8);
+    // Merkeze en yakın ustanın ili (Atakum → Samsun) baz alınır; hepsi o il.
+    const cities = new Set(items.map((i) => i.city));
+    expect(cities.size).toBe(1);
+    expect([...cities][0]).toBe('Samsun');
+  });
+
+  it('3.10 regresyon — provinceWide=true dar yarıçapı YOK SAYAR '
+    + '(city bazlı, ST_DWithin değil)', async () => {
+    // radiusKm=1 mesafe filtresiyle sadece çok yakınlar döner.
+    const narrow = await request(app.getHttpServer())
+      .get(`${base}&radiusKm=1`)
+      .expect(200);
+    // provinceWide açıkken aynı dar yarıçap yok sayılır → il geneli döner.
+    const wide = await request(app.getHttpServer())
+      .get(`${base}&provinceWide=true&radiusKm=1`)
+      .expect(200);
+
+    const narrowItems = narrow.body as DiscoverItem[];
+    const wideItems = wide.body as DiscoverItem[];
+    expect(wideItems.length).toBeGreaterThan(narrowItems.length);
+    expect(wideItems.every((i) => i.city === 'Samsun')).toBe(true);
+  });
+
+  it('provinceWide=false (varsayılan) mesafe (ST_DWithin) filtresi geçerli', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`${base}&radiusKm=2`)
+      .expect(200);
+    // Eski davranış korunur: yarıçap dışındakiler elenir.
+    expect((res.body as DiscoverItem[]).every((i) => i.distanceKm <= 2)).toBe(
+      true,
+    );
   });
 });

@@ -63,6 +63,33 @@ export class ProsService {
     const isoDow = ((new Date().getDay() + 6) % 7) + 1;
     const radiusMeters = (query.radiusKm ?? 15) * 1000;
 
+    // Merkez konumun coğrafi noktası (birden çok kez kullanılır).
+    const centerGeog = Prisma.sql`ST_SetSRID(ST_MakePoint(${query.lng}, ${query.lat}), 4326)::geography`;
+
+    // Konum filtresi additive olarak dallanır:
+    //  • provinceWide → mesafe yok; merkeze EN YAKIN ustanın ili (city) baz
+    //    alınıp o ildeki tüm ustalar döner (kullanıcının bulunduğu il).
+    //  • aksi halde → eski davranış: radiusKm ST_DWithin.
+    const locationFilter = query.provinceWide
+      ? Prisma.sql`p.city = (
+          SELECT p2.city
+          FROM pro_profiles p2
+          WHERE p2."isPublished"
+            AND p2."verificationStatus" = 'VERIFIED'
+            AND p2.latitude IS NOT NULL
+            AND p2.longitude IS NOT NULL
+          ORDER BY ST_Distance(
+            ST_SetSRID(ST_MakePoint(p2.longitude, p2.latitude), 4326)::geography,
+            ${centerGeog}
+          ) ASC
+          LIMIT 1
+        )`
+      : Prisma.sql`ST_DWithin(
+          ST_SetSRID(ST_MakePoint(p.longitude, p.latitude), 4326)::geography,
+          ${centerGeog},
+          ${radiusMeters}
+        )`;
+
     const rows = await this.prisma.$queryRaw<DiscoverRow[]>(Prisma.sql`
       SELECT
         p.id,
@@ -131,11 +158,7 @@ export class ProsService {
         AND p."verificationStatus" = 'VERIFIED'
         AND p.latitude IS NOT NULL
         AND p.longitude IS NOT NULL
-        AND ST_DWithin(
-          ST_SetSRID(ST_MakePoint(p.longitude, p.latitude), 4326)::geography,
-          ST_SetSRID(ST_MakePoint(${query.lng}, ${query.lat}), 4326)::geography,
-          ${radiusMeters}
-        )
+        AND ${locationFilter}
         AND (${query.categorySlug ?? null}::text IS NULL
              OR c.slug = ${query.categorySlug ?? null})
         AND (${query.subServiceSlug ?? null}::text IS NULL
