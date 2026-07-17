@@ -18,6 +18,9 @@ const mockCheckoutCreate = jest.fn(
 const mockSubMerchantCreate = jest.fn(
   cbOk({ status: 'success', subMerchantKey: 'SUBKEY-123' }),
 );
+// Provider önce mevcut subMerchant'ı retrieve eder; yoksa create eder.
+// Mock retrieve "yok" (failure) döner → create yoluna düşer.
+const mockSubMerchantRetrieve = jest.fn(cbOk({ status: 'failure' }));
 const mockRetrieve = jest.fn(
   cbOk({
     status: 'success',
@@ -31,7 +34,10 @@ const mockRefundCreate = jest.fn(cbOk({ status: 'success' }));
 jest.mock('iyzipay', () => {
   const Iyzipay = function (this: Record<string, unknown>) {
     this.checkoutFormInitialize = { create: mockCheckoutCreate };
-    this.subMerchant = { create: mockSubMerchantCreate };
+    this.subMerchant = {
+      create: mockSubMerchantCreate,
+      retrieve: mockSubMerchantRetrieve,
+    };
     this.checkoutForm = { retrieve: mockRetrieve };
     this.approval = { create: mockApprovalCreate };
     this.refund = { create: mockRefundCreate };

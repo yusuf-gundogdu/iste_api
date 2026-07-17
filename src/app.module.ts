@@ -17,6 +17,7 @@ import { ServiceRecordsModule } from './service-records/service-records.module';
 import { SearchModule } from './search/search.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { UsersModule } from './users/users.module';
+import { SupportModule } from './support/support.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { UsersModule } from './users/users.module';
     SearchModule,
     UploadsModule,
     UsersModule,
+    SupportModule,
   ],
 })
 export class AppModule {}

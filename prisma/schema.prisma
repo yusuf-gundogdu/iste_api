@@ -41,6 +41,7 @@ model User {
   addresses             Address[]
   notifications         Notification[]
   deviceTokens          DeviceToken[]
+  supportTickets        SupportTicket[]
 
   @@unique([provider, providerSub])
   @@map("users")
@@ -373,6 +374,7 @@ enum NotificationType {
   REFUND_REQUESTED
   REVIEW_RECEIVED
   VERIFICATION_RESULT
+  SUPPORT_UPDATED
 }
 
 model Notification {
@@ -389,6 +391,37 @@ model Notification {
 
   @@index([userId, createdAt])
   @@map("notifications")
+}
+
+// ─── Yardım & Destek (ticket) ────────────────────────────────────────────
+// Müşteri talep açar (yazı + opsiyonel resim); statü akışıyla ele alınır;
+// çözülünce/kapanınca kullanıcıya bildirim gider. Admin panelinden yönetilir.
+
+enum SupportTicketStatus {
+  OPEN // Açık
+  IN_PROGRESS // İnceleniyor
+  RESOLVED // Çözüldü
+  UNRESOLVED // Çözülemedi
+  CLOSED // Kapandı
+}
+
+model SupportTicket {
+  id         String              @id @default(uuid())
+  userId     String
+  subject    String
+  message    String
+  imageUrl   String? // sunucu diski yolu '/uploads/...'
+  status     SupportTicketStatus @default(OPEN)
+  adminNote  String? // yönetici notu (mobil müşteri de görür)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  resolvedAt DateTime? // RESOLVED/UNRESOLVED/CLOSED'a geçiş anı
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("support_tickets")
 }
 
 /// FCM cihaz token'ı; kullanıcı başına birden çok cihaz olabilir.

@@ -8,7 +8,8 @@ type NotificationType =
   | 'PAYMENT_RELEASED'
   | 'REFUND_REQUESTED'
   | 'REVIEW_RECEIVED'
-  | 'VERIFICATION_RESULT';
+  | 'VERIFICATION_RESULT'
+  | 'SUPPORT_UPDATED';
 
 /**
  * Push gönderici soyutlaması. userId + başlık/gövde (+ opsiyonel data) alır;
